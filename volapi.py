@@ -12,12 +12,11 @@ class Room:
         if name != None:
             self.name = name
         else:
-            self.name = re.search(r'r/(.+?)$', request.get(BASE_URL + "/new").url).group(1)
+            self.name = re.search(r'r/(.+?)$', requests.get(BASE_URL + "/new").url).group(1)
         if user != None:
             self.user = user
         else:
-            self.user = User(_randomID(5))
-        self.user = user
+            self.user = User(self._randomID(5))
         checksum, checksum2 = self._getChecksums()
         ws_url = BASE_WS_URL
         ws_url += "?rn=" + self._randomID(6)
@@ -26,7 +25,7 @@ class Room:
         self.ws = websocket.create_connection(ws_url)
         self._startPinging()
         self._subscribe(checksum, checksum2)
-        self.uploadKey = _generateUploadKey()
+        self.uploadKey = self._generateUploadKey()
         self.sendCount = 1
 
     # TODO
@@ -48,7 +47,7 @@ class Room:
         self.ws.send('4[-1,[[0,["subscribe",{"room":"'+self.name+'","checksum":"'+checksum+'","checksum2":"'+checksum2+'","nick":"'+self.user.name+'"}]],0]]')
 
     def userChangeNick(self, new_nick):
-        if not user.loggedIn:
+        if not self.user.loggedIn:
             self.ws.send('4[15,[[0,["call",{"fn":"command","args":["'+self.user.name+'","nick","'+new_nick+'"]}]],'+str(self.sendCount)+']]')
             self.sendCount += 1
             self.user.name = new_nick
@@ -79,7 +78,7 @@ class Room:
         thread.start_new_thread(pingForever, ())
 
     def _generateUploadKey(self):
-        return json.loads(requests.get(BASE_REST_URL + "getUploadKey", params={"name":self.user.name,"room":self.name}))
+        return json.loads(requests.get(BASE_REST_URL + "getUploadKey", params={"name":self.user.name,"room":self.name}).text)
 
     def _getChecksums(self):
         text = requests.get(BASE_ROOM_URL + self.name).text
