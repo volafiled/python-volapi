@@ -1,5 +1,5 @@
 
-import random, string, websocket, thread, time, requests, re, json
+import random, string, websocket, _thread, time, requests, re, json
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -53,7 +53,7 @@ class Room:
                     self._addData(json.loads(new_data[1:]))
                 except ValueError:
                     pass
-        thread.start_new_thread(listen, ())
+        _thread.start_new_thread(listen, ())
 
     def _addData(self,data):
         i = 1
@@ -135,7 +135,7 @@ class Room:
             while self.ws.connected:
                 time.sleep(20)
                 self.ws.send('3')
-        thread.start_new_thread(pingForever, ())
+        _thread.start_new_thread(pingForever, ())
 
     def _generateUploadKey(self):
         info = json.loads(requests.get(BASE_REST_URL + "getUploadKey", params={"name":self.user.name,"room":self.name}).text)
