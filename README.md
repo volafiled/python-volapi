@@ -1,6 +1,11 @@
 Volafile-API version 0.1
 ============
 
+Requires the websocket-client package
+```
+pip3 install websocket-client
+```
+
 Example:
 
 ```python
