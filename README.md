@@ -18,3 +18,52 @@ for msg in beepi.getChatLog():
     print(msg.nick + ": " + msg.msg)
 beepi.close()
 ```
+Documentation:
+
+```python
+class Room(builtins.object)
+
+   __init__(self, name=None, user=None)
+       # name is the room name, if none then makes a new room
+       # user is your user name, if none then generates one for you
+   
+   close(self)
+       # close connection to this room
+   
+   getChatLog(self)
+       # returns list of ChatMessage objects for this room
+   
+   getFiles(self)
+       # returns list of File objects for this room.
+   
+   getUserCount(self)
+       # returns number of users in this room
+   
+   postChat(self, msg)
+       # Posts a msg to this room's chat
+   
+   uploadFile(self, filename)
+       # uploads a file with given filename to this room.
+   
+   userChangeNick(self, new_nick)
+       # Change the name of your user.
+       # Note: Must be logged out to change nick.
+   
+   userLogin(self, password)
+       # Attempts to log in as the current user with given password.
+   
+   userLogout(self)
+       # Logs your user out.
+
+class File(builtins.object)
+    # Basically a struct for a file's info on volafile, with an additional
+    # method to retrieve the file's URL.
+    
+    getURL(self)
+
+    # Fields
+    self.fileID
+    self.name
+    self.fileType
+    self.uploader
+```
