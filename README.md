@@ -9,11 +9,11 @@ pip3 install websocket-client
 Example:
 
 ```python
-from volapi import room
+from volapi import Room
 beepi = Room("BEEPi", "ptc")
 beepi.postChat("kek")
 beepi.uploadFile("shekel.jewpeg")
 for msg in beepi.getChatLog():
-    print msg.nick + ": " + msg.msg
+    print(msg.nick + ": " + msg.msg)
 beepi.close()
 ```
