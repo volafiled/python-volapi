@@ -60,7 +60,7 @@ class Room:
         while i < len(data):
             data_type = data[i][0][1][0]
             if data_type == "user_count":
-                self.user_count = data[i][0][1][1]
+                self.userCount = data[i][0][1][1]
             elif data_type == "files":
                 files = data[i][0][1][1]['files']
                 for f in files:
