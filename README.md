@@ -1,4 +1,4 @@
-Volafile-API version 0.1
+Volafile-API version 0.2
 ============
 
 Requires the websocket-client and requests packages.
@@ -59,6 +59,10 @@ class File(builtins.object)
     # Basically a struct for a file's info on volafile, with an additional
     # method to retrieve the file's URL.
     
+    # Constructor
+    __init__(self, fileID, name, fileType, uploader)
+    
+    # Gets the URL for downloading the file
     getURL(self)
 
     # Fields
@@ -66,4 +70,19 @@ class File(builtins.object)
     self.name
     self.fileType
     self.uploader
+    
+class ChatMessage(builtins.object)
+    # Basically a struct for a chat message. self.msg holds the
+    # text of the message, files is a list of Files that were
+    # linked in the message, and rooms are a list of rooms 
+    # linked in the message.
+
+    # Constructor
+    __init__(self, nick, msg, files, rooms)
+
+    # Fields
+    self.nick
+    self.msg
+    self.files
+    self.rooms
 ```
