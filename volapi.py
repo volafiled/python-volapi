@@ -73,13 +73,15 @@ class Room:
                 msg = ""
                 for part in msgParts:
                     if part['type'] == 'text':
-                        msg += part['value'].strip()
+                        msg += part['value']
                     elif part['type'] == 'file':
                         files.append(File(part['id'], part['name'], None, None))
-                        msg += " @" + part['id'] + " "
+                        msg += "@" + part['id']
                     elif part['type'] == 'room':
                         rooms.append(part['id'])
-                        msg += " #" + part['id'] + " "
+                        msg += "#" + part['id']
+                    elif part['type'] == 'url':
+                        msg += part['text']
                 self.chatLog.append(ChatMessage(nick, msg, files, rooms))
             i += 1
 
