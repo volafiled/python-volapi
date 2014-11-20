@@ -66,7 +66,21 @@ class Room:
                 for f in files:
                     self.files.append(File(f[0], f[1], f[2], f[6]['user']))
             elif data_type == "chat":
-                self.chatLog.append(ChatMessage(data[i][0][1][1]['nick'], data[i][0][1][1]['message'][0]['value']))
+                nick = data[i][0][1][1]['nick']
+                msgParts = data[i][0][1][1]['message']
+                files = []
+                rooms = []
+                msg = ""
+                for part in msgParts:
+                    if part['type'] == 'text':
+                        msg += part['value'].strip()
+                    elif part['type'] == 'file':
+                        files.append(File(part['id'], part['name'], None, None))
+                        msg += " @" + part['id'] + " "
+                    elif part['type'] == 'room':
+                        rooms.append(part['id'])
+                        msg += " #" + part['id'] + " "
+                self.chatLog.append(ChatMessage(nick, msg, files, rooms))
             i += 1
 
     # returns list of ChatMessage objects for this room
@@ -149,12 +163,17 @@ class Room:
 
         return cs1, cs2
 
-# Basically a struct for a chat message
+# Basically a struct for a chat message. self.msg holds the
+# text of the message, files is a list of Files that were
+# linked in the message, and rooms are a list of rooms 
+# linked in the message.
 class ChatMessage:
 
-    def __init__(self, nick, msg):
+    def __init__(self, nick, msg, files, rooms):
         self.nick = nick
         self.msg = msg
+        self.files = files
+        self.rooms = rooms
 
 # Basically a struct for a file's info on volafile, with an additional
 # method to retrieve the file's URL.
