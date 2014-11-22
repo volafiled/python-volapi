@@ -52,8 +52,6 @@ class Room:
                     new_data = self.ws.recv()
                 except TypeError:
                     pass
-                except websocket._exceptions.WebSocketConnectionClosedException:
-                    self.ws = websocket.create_connection(self.ws_url)
                 try:
                     self._addData(json.loads(new_data[1:]))
                 except ValueError:
@@ -104,6 +102,7 @@ class Room:
 
     # Posts a msg to this room's chat
     def postChat(self, msg):
+        msg = msg.replace('\\', '\\\\')
         self.ws.send('4[1337,[[0,["call",{"fn":"chat","args":["'+self.user.name+'","'+msg+'"]}]],'+str(self.sendCount)+']]')
         self.sendCount += 1
 
