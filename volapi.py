@@ -52,7 +52,7 @@ class Room:
                     new_data = self.ws.recv()
                 except TypeError:
                     pass
-                except WebSocketConnectionClosedException:
+                except websocket._exceptions.WebSocketConnectionClosedException:
                     self.ws = websocket.create_connection(self.ws_url)
                 try:
                     self._addData(json.loads(new_data[1:]))
