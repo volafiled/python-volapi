@@ -48,7 +48,10 @@ class Room:
     def _listenForever(self):
         def listen():
             while self.ws.connected:
-                new_data = self.ws.recv()
+                try:
+                    new_data = self.ws.recv()
+                except TypeError:
+                    pass
                 try:
                     self._addData(json.loads(new_data[1:]))
                 except ValueError:
