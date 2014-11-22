@@ -26,11 +26,11 @@ class Room:
         else:
             self.user = User(self._randomID(5))
         checksum, checksum2 = self._getChecksums()
-        ws_url = BASE_WS_URL
-        ws_url += "?rn=" + self._randomID(6)
-        ws_url += "&EIO=3&transport=websocket"
-        ws_url += "&t=" + str(int(time.time()*1000))
-        self.ws = websocket.create_connection(ws_url)
+        self.ws_url = BASE_WS_URL
+        self.ws_url += "?rn=" + self._randomID(6)
+        self.ws_url += "&EIO=3&transport=websocket"
+        self.ws_url += "&t=" + str(int(time.time()*1000))
+        self.ws = websocket.create_connection(self.ws_url)
         self._startPinging()
         self._subscribe(checksum, checksum2)
         self.sendCount = 1
@@ -52,6 +52,8 @@ class Room:
                     new_data = self.ws.recv()
                 except TypeError:
                     pass
+                except WebSocketConnectionClosedException:
+                    self.ws = websocket.create_connection(self.ws_url)
                 try:
                     self._addData(json.loads(new_data[1:]))
                 except ValueError:
@@ -153,7 +155,10 @@ class Room:
         def pingForever():
             while self.ws.connected:
                 time.sleep(20)
-                self.ws.send('3')
+                try:
+                    self.ws.send('3')
+                except BrokenPipeError:
+                    pass
         _thread.start_new_thread(pingForever, ())
 
     def _generateUploadKey(self):
