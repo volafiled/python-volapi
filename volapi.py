@@ -33,6 +33,7 @@ class Room:
         self.ws = websocket.create_connection(self.ws_url)
         self._startPinging()
         self._subscribe(checksum, checksum2)
+        self.connected = True
         self.sendCount = 1
         self.userCount = 0
         self.files = []
@@ -47,11 +48,17 @@ class Room:
     # and updates Room state accordingly.
     def _listenForever(self):
         def listen():
-            while self.ws.connected:
+            while self.connected:
                 try:
                     new_data = self.ws.recv()
                 except TypeError:
                     pass
+                except websocket._exceptions.WebSocketConnectionClosedException:
+                    if not connected:
+                        # Got disconnected. Try reconnecting.
+                        self.ws = websocket.create_connection(self.ws_url)
+                        self.ws.recv() # read out initial websocket info
+                        self.ws.recv() # continue reading out...
                 try:
                     self._addData(json.loads(new_data[1:]))
                 except ValueError:
@@ -118,6 +125,7 @@ class Room:
     # close connection to this room
     def close(self):
         self.ws.close()
+        self.connected = False
 
     def _subscribe(self, checksum, checksum2):
         self.ws.send('4[-1,[[0,["subscribe",{"room":"'+self.name+'","checksum":"'+checksum+'","checksum2":"'+checksum2+'","nick":"'+self.user.name+'"}]],0]]')
@@ -152,7 +160,7 @@ class Room:
 
     def _startPinging(self):
         def pingForever():
-            while self.ws.connected:
+            while self.connected:
                 time.sleep(20)
                 try:
                     self.ws.send('3')
