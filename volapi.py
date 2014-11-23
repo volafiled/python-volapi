@@ -142,7 +142,7 @@ class Room:
     def userLogin(self, password):
         if not self.user.loggedIn:
             json_resp = json.loads(requests.get(BASE_REST_URL + "login",params={"name": self.user.name, "password": password}).text)
-            if json_resp.has_key('error'):
+            if 'error' in json_resp.keys():
                 return
             self.ws.send('4[17,[[0,["call",{"fn":"useSession","args":["'+json_resp['session']+'"]}]],'+str(self.sendCount)+']]')
             self.user.login()
