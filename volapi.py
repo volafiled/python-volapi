@@ -31,9 +31,9 @@ class Room:
         self.ws_url += "&EIO=3&transport=websocket"
         self.ws_url += "&t=" + str(int(time.time()*1000))
         self.ws = websocket.create_connection(self.ws_url)
+        self.connected = True
         self._startPinging()
         self._subscribe(checksum, checksum2)
-        self.connected = True
         self.sendCount = 1
         self.userCount = 0
         self.files = []
