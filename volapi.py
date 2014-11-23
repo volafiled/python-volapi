@@ -54,7 +54,7 @@ class Room:
                 except TypeError:
                     pass
                 except websocket._exceptions.WebSocketConnectionClosedException:
-                    if not connected:
+                    if self.connected:
                         # Got disconnected. Try reconnecting.
                         self.ws = websocket.create_connection(self.ws_url)
                         self.ws.recv() # read out initial websocket info
