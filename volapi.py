@@ -109,7 +109,7 @@ class Room:
 
     # Posts a msg to this room's chat
     def postChat(self, msg):
-        msg = msg.replace('\\', '\\\\')
+        msg = self._escape(msg)
         self.ws.send('4[1337,[[0,["call",{"fn":"chat","args":["'+self.user.name+'","'+msg+'"]}]],'+str(self.sendCount)+']]')
         self.sendCount += 1
 
@@ -171,6 +171,9 @@ class Room:
     def _generateUploadKey(self):
         info = json.loads(requests.get(BASE_REST_URL + "getUploadKey", params={"name":self.user.name,"room":self.name}).text)
         return info['key'], info['server']
+
+    def _escape(self, string):
+        return string.replace('\\', '\\\\').replace('"', '\\"')
 
     def _getChecksums(self):
         text = requests.get(BASE_ROOM_URL + self.name).text
