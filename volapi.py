@@ -120,6 +120,7 @@ class Room:
     # uploads a file with given filename to this room.
     def uploadFile(self, filename):
         f = open(filename, 'rb')
+        filename = self._escape(filename)
         files = {'file' : f}
         headers = {'Origin':'https://volafile.io'}
         key, server = self._generateUploadKey()
@@ -138,6 +139,7 @@ class Room:
     # Note: Must be logged out to change nick.
     def userChangeNick(self, new_nick):
         if not self.user.loggedIn:
+            new_nick = self._escape(new_nick)
             self.ws.send('4['+self.maxID+',[[0,["call",{"fn":"command","args":["'+self.user.name+'","nick","'+new_nick+'"]}]],'+str(self.sendCount)+']]')
             self.sendCount += 1
             self.user.name = new_nick
