@@ -38,6 +38,7 @@ class Room:
         self.userCount = 0
         self.files = []
         self.chatLog = []
+        self.maxID = '0'
 
         self.ws.recv() # read out initial websocket info
         self.ws.recv() # continue reading out...
@@ -60,7 +61,10 @@ class Room:
                         self.ws.recv() # read out initial websocket info
                         self.ws.recv() # continue reading out...
                 try:
-                    self._addData(json.loads(new_data[1:]))
+                    json_data = json.loads(new_data[1:])
+                    if type(json_data) is list and len(json_data) > 1:
+                        self.maxID = str(json_data[1][-1])
+                        self._addData(json_data)
                 except ValueError:
                     pass
         _thread.start_new_thread(listen, ())
@@ -110,7 +114,7 @@ class Room:
     # Posts a msg to this room's chat
     def postChat(self, msg):
         msg = self._escape(msg)
-        self.ws.send('4[1337,[[0,["call",{"fn":"chat","args":["'+self.user.name+'","'+msg+'"]}]],'+str(self.sendCount)+']]')
+        self.ws.send('4['+self.maxID+',[[0,["call",{"fn":"chat","args":["'+self.user.name+'","'+msg+'"]}]],'+str(self.sendCount)+']]')
         self.sendCount += 1
 
     # uploads a file with given filename to this room.
@@ -134,7 +138,7 @@ class Room:
     # Note: Must be logged out to change nick.
     def userChangeNick(self, new_nick):
         if not self.user.loggedIn:
-            self.ws.send('4[15,[[0,["call",{"fn":"command","args":["'+self.user.name+'","nick","'+new_nick+'"]}]],'+str(self.sendCount)+']]')
+            self.ws.send('4['+self.maxID+',[[0,["call",{"fn":"command","args":["'+self.user.name+'","nick","'+new_nick+'"]}]],'+str(self.sendCount)+']]')
             self.sendCount += 1
             self.user.name = new_nick
 
@@ -144,14 +148,14 @@ class Room:
             json_resp = json.loads(requests.get(BASE_REST_URL + "login",params={"name": self.user.name, "password": password}).text)
             if 'error' in json_resp.keys():
                 return
-            self.ws.send('4[17,[[0,["call",{"fn":"useSession","args":["'+json_resp['session']+'"]}]],'+str(self.sendCount)+']]')
+            self.ws.send('4['+self.maxID+',[[0,["call",{"fn":"useSession","args":["'+json_resp['session']+'"]}]],'+str(self.sendCount)+']]')
             self.user.login()
             self.sendCount += 1
 
     # Logs your user out.
     def userLogout(self):
         if self.user.loggedIn:
-            self.ws.send('4[19,[[0,["call",{"fn":"logout","args":[]}]],'+str(self.sendCount)+']]')
+            self.ws.send('4['+self.maxID+',[[0,["call",{"fn":"logout","args":[]}]],'+str(self.sendCount)+']]')
             self.user.logout()
             self.sendCount += 1
 
