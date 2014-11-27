@@ -32,16 +32,12 @@ class Room:
         self.ws_url += "&t=" + str(int(time.time()*1000))
         self.ws = websocket.create_connection(self.ws_url)
         self.connected = True
-        self._startPinging()
         self._subscribe(checksum, checksum2)
         self.sendCount = 1
         self.userCount = 0
         self.files = []
         self.chatLog = []
         self.maxID = '0'
-
-        self.ws.recv() # read out initial websocket info
-        self.ws.recv() # continue reading out...
 
         self._listenForever()
 
@@ -50,23 +46,22 @@ class Room:
     def _listenForever(self):
         def listen():
             while self.connected:
-                try:
-                    new_data = self.ws.recv()
-                except TypeError:
-                    pass
-                except websocket._exceptions.WebSocketConnectionClosedException:
-                    if self.connected:
-                        # Got disconnected. Try reconnecting.
-                        self.ws = websocket.create_connection(self.ws_url)
-                        self.ws.recv() # read out initial websocket info
-                        self.ws.recv() # continue reading out...
-                try:
+                new_data = self.ws.recv()
+                if new_data[0] == '0':
+                    pass # Connection has been opened
+                elif new_data[0] == '1':
+                    print("Volafile has requested this connection close.")
+                    self.close()
+                elif new_data[0] == '2':
+                    #ping incoming. Pong back.
+                    self.ws.send('3' + new_data[1:])
+                elif new_data[0] == '4':
                     json_data = json.loads(new_data[1:])
                     if type(json_data) is list and len(json_data) > 1:
                         self.maxID = str(json_data[1][-1])
                         self._addData(json_data)
-                except ValueError:
-                    pass
+                else:
+                    pass # not implemented
         _thread.start_new_thread(listen, ())
 
     def _addData(self,data):
@@ -163,16 +158,6 @@ class Room:
 
     def _randomID(self, n):
         return ''.join(random.choice(string.ascii_letters+string.digits) for _ in range(n))
-
-    def _startPinging(self):
-        def pingForever():
-            while self.connected:
-                time.sleep(20)
-                try:
-                    self.ws.send('3')
-                except BrokenPipeError:
-                    pass
-        _thread.start_new_thread(pingForever, ())
 
     def _generateUploadKey(self):
         info = json.loads(requests.get(BASE_REST_URL + "getUploadKey", params={"name":self.user.name,"room":self.name}).text)
