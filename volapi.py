@@ -45,16 +45,12 @@ class Room:
     # and updates Room state accordingly.
     def _listenForever(self):
         def listen():
-            while self.connected:
+            last_time = time.time()
+            while self.ws.connected:
                 new_data = self.ws.recv()
-                if new_data[0] == '0':
-                    pass # Connection has been opened
-                elif new_data[0] == '1':
+                if new_data[0] == '1':
                     print("Volafile has requested this connection close.")
                     self.close()
-                elif new_data[0] == '2':
-                    #ping incoming. Pong back.
-                    self.ws.send('3' + new_data[1:])
                 elif new_data[0] == '4':
                     json_data = json.loads(new_data[1:])
                     if type(json_data) is list and len(json_data) > 1:
@@ -62,7 +58,19 @@ class Room:
                         self._addData(json_data)
                 else:
                     pass # not implemented
+
+                # send max msg ID seen every 10 seconds
+                if time.time() > last_time + 10:
+                    self.ws.send("4[" + self.maxID + "]")
+                    last_time = time.time()
+
+        def ping():
+            while self.ws.connected:
+                self.ws.send('2')
+                time.sleep(20)
+
         _thread.start_new_thread(listen, ())
+        _thread.start_new_thread(ping, ())
 
     def _addData(self,data):
         i = 1
