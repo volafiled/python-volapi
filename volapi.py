@@ -10,7 +10,11 @@ import websocket
 
 from .multipart import Data
 
+
+__version__ = "0.3b"
+
 requests = _requests.Session()
+requests.headers.update({"User-Agent": "Volafile-API/{}".format(__version__)})
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
