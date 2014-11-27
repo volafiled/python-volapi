@@ -1,5 +1,8 @@
 
-import random, string, websocket, _thread, time, requests, re, json
+import random, string, websocket, _thread, time, re, json
+import requests as _requests
+
+requests = _requests.Session()
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -152,8 +155,10 @@ class Room:
         if not self.user.loggedIn:
             json_resp = json.loads(requests.get(BASE_REST_URL + "login",params={"name": self.user.name, "password": password}).text)
             if 'error' in json_resp.keys():
-                return
-            self.ws.send('4['+self.maxID+',[[0,["call",{"fn":"useSession","args":["'+json_resp['session']+'"]}]],'+str(self.sendCount)+']]')
+                raise IOError("Login unsuccessful: {}", json_resp["error"])
+            msg = '4['+self.maxID+',[[0,["call",{"fn":"useSession","args":["'+json_resp['session']+'"]}]],'+str(self.sendCount)+']]'
+            requests.cookies.update({"session": json_resp["session"]})
+            self.ws.send(msg)
             self.user.login()
             self.sendCount += 1
 
