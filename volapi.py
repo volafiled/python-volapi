@@ -144,12 +144,14 @@ class Room:
         msg = self._escape(msg)
         self._make_call("chat", [self.user.name, msg])
 
-    def uploadFile(self, filename, uploadAs=None):
+    def uploadFile(self, filename, uploadAs=None, blocksize=None, cb=None):
         """Uploads a file with given filename to this room"""
         f = filename if hasattr(filename, "read") else open(filename, 'rb')
         filename = self._escape(uploadAs or os.path.split(filename)[1])
 
-        files = Data({'file': {"name": filename, "value": f}})
+        files = Data({'file': {"name": filename, "value": f}},
+                     blocksize=blocksize,
+                     cb=cb)
 
         headers = {'Origin': 'https://volafile.io'}
         headers.update(files.headers)
