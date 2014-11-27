@@ -18,6 +18,10 @@ BASE_REST_URL = BASE_URL + "/rest/"
 BASE_WS_URL = "wss://volafile.io/api/"
 
 
+def to_json(o):
+    return json.dumps(o, separators=(',', ':'))
+
+
 class Room:
     """ Use this to interact with a room as a user
     Example:
@@ -48,7 +52,7 @@ class Room:
         self.userCount = 0
         self.files = []
         self.chatLog = []
-        self.maxID = '0'
+        self.maxID = 0
 
         self._listenForever()
 
@@ -65,14 +69,15 @@ class Room:
                 elif new_data[0] == '4':
                     json_data = json.loads(new_data[1:])
                     if type(json_data) is list and len(json_data) > 1:
-                        self.maxID = str(json_data[1][-1])
+                        self.maxID = int(json_data[1][-1])
                         self._addData(json_data)
                 else:
                     pass  # not implemented
 
                 # send max msg ID seen every 10 seconds
                 if time.time() > last_time + 10:
-                    self.ws.send("4[{}]".format(self.maxID))
+                    msg = "4" + to_json([self.maxID])
+                    self.ws.send(msg)
                     last_time = time.time()
 
         def ping():
@@ -126,15 +131,18 @@ class Room:
         """Returns list of File objects for this room"""
         return self.files
 
+    def _make_call(self, fn, args):
+        o = {"fn": fn, "args": args}
+        o = [self.maxID, [[0, ["call", o]],
+                          self.sendCount
+                          ]]
+        self.ws.send("4" + to_json(o))
+        self.sendCount += 1
+
     def postChat(self, msg):
         """Posts a msg to this room's chat"""
         msg = self._escape(msg)
-        msg = ('4[' + self.maxID + ',[[0,["call",{"fn":"chat","args":["' +
-               self.user.name + '","' + msg + '"]}]],'
-               + str(self.sendCount) + ']]'
-               )
-        self.ws.send(msg)
-        self.sendCount += 1
+        self._make_call("chat", [self.user.name, msg])
 
     def uploadFile(self, filename, uploadAs=None):
         """Uploads a file with given filename to this room"""
@@ -164,11 +172,13 @@ class Room:
         self.connected = False
 
     def _subscribe(self, checksum, checksum2):
-        msg = ('4[-1,[[0,["subscribe",{"room":"' + self.name +
-               '","checksum":"' + checksum + '","checksum2":"' + checksum2 +
-               '","nick":"' + self.user.name + '"}]],0]]'
-               )
-        self.ws.send(msg)
+        o = [-1, [[0, ["subscribe", {"room": self.name,
+                                     "checksum": checksum,
+                                     "checksum2": checksum2,
+                                     "nick": self.user.name
+                                     }]],
+                  0]]
+        self.ws.send("4" + to_json(o))
 
     def userChangeNick(self, new_nick):
         """Change the name of your user
@@ -177,12 +187,7 @@ class Room:
             raise RuntimeError("User must be logged out")
 
         new_nick = self._escape(new_nick)
-        msg = ('4[' + self.maxID + ',[[0,["call",{"fn":"command","args":["' +
-               self.user.name + '","nick","' + new_nick + '"]}]],'
-               + str(self.sendCount) + ']]'
-               )
-        self.ws.send(msg)
-        self.sendCount += 1
+        self._make_call("command", [self.user.name, "nick", new_nick])
         self.user.name = new_nick
 
     def userLogin(self, password):
@@ -198,25 +203,15 @@ class Room:
         if 'error' in json_resp.keys():
             raise ValueError("Login unsuccessful: {}".
                              format(json_resp["error"]))
-        msg = ('4[' + self.maxID +
-               ',[[0,["call",{"fn":"useSession","args":["' +
-               json_resp['session'] + '"]}]],' +
-               str(self.sendCount) + ']]')
+        self._make_call("useSession", [json_resp["session"]])
         requests.cookies.update({"session": json_resp["session"]})
-        self.ws.send(msg)
         self.user.login()
-        self.sendCount += 1
 
     def userLogout(self):
         """Logs your user out"""
         if not self.user.loggedIn:
             raise RuntimeError("User is not logged in")
-        msg = ('4[' + self.maxID +
-               ',[[0,["call",{"fn":"logout","args":[]}]],' +
-               str(self.sendCount) + ']]')
-        self.ws.send(msg)
-        self.user.logout()
-        self.sendCount += 1
+        self._make_call("logout", [])
 
     def _randomID(self, n):
         def r():
