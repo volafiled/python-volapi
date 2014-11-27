@@ -1,6 +1,8 @@
 
+import os
 import random, string, websocket, _thread, time, re, json
 import requests as _requests
+from .multipart import Data
 
 requests = _requests.Session()
 
@@ -124,14 +126,15 @@ class Room:
         self.sendCount += 1
 
     # uploads a file with given filename to this room.
-    def uploadFile(self, filename):
-        f = open(filename, 'rb')
-        filename = self._escape(filename)
-        files = {'file' : f}
+    def uploadFile(self, filename, uploadAs=None):
+        f = open(filename, 'rb', buffering=512*1024)
+        filename = self._escape(uploadAs or os.path.split(filename)[1])
+        files = Data({'file' : {"name": filename, "value": f}})
         headers = {'Origin':'https://volafile.io'}
+        headers.update(files.headers)
         key, server = self._generateUploadKey()
         params = {'room':self.name, 'key':key, 'filename':filename}
-        return requests.post("https://" + server + "/upload", params=params, files=files, headers=headers)
+        return requests.post("https://" + server + "/upload", params=params, data=files, headers=headers)
 
     # close connection to this room
     def close(self):
