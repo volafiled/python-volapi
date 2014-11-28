@@ -149,7 +149,10 @@ class Room:
         self._make_call("chat", [self.user.name, msg])
 
     def uploadFile(self, filename, uploadAs=None, blocksize=None, cb=None):
-        """Uploads a file with given filename to this room"""
+        """
+        Uploads a file with given filename to this room.
+        You may specify uploadAs to change the name it is uploaded as.
+        You can also specify a blocksize and a callback if you wish."""
         f = filename if hasattr(filename, "read") else open(filename, 'rb')
         filename = self._escape(uploadAs or os.path.split(filename)[1])
 
