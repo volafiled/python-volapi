@@ -22,15 +22,17 @@ Documentation:
 
 ```pydoc
 CLASSES
-    class ChatMessage(builtins.object)
+class ChatMessage(builtins.object)
      |  Basically a struct for a chat message. self.msg holds the
      |  text of the message, files is a list of Files that were
      |  linked in the message, and rooms are a list of room
-     |  linked in the message.
+     |  linked in the message. There are also flags for whether the
+     |  user of the message was logged in, a donor, or an admin.
      |  
      |  Methods defined here:
      |  
-     |  __init__(self, nick, msg, files, rooms)
+     |  __init__(self, nick, msg, files, rooms, loggedIn, donor, admin)
+
     
     class File(builtins.object)
      |  Basically a struct for a file's info on volafile, with an additional

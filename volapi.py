@@ -121,7 +121,12 @@ class Room:
                         msg += "#" + part['id']
                     elif part['type'] == 'url':
                         msg += part['text']
-                self.chatLog.append(ChatMessage(nick, msg, files, rooms))
+                options = item[0][1][1]['options']
+                user = 'user' in options.keys()
+                donator = 'donator' in options.keys()
+                admin = 'admin' in options.keys()
+                cm = ChatMessage(nick, msg, files, rooms, user, donator, admin)
+                self.chatLog.append(cm)
 
     def getChatLog(self):
         """Returns list of ChatMessage objects for this room"""
@@ -251,13 +256,17 @@ class ChatMessage:
     """Basically a struct for a chat message. self.msg holds the
     text of the message, files is a list of Files that were
     linked in the message, and rooms are a list of room
-    linked in the message."""
+    linked in the message. There are also flags for whether the
+    user of the message was logged in, a donor, or an admin."""
 
-    def __init__(self, nick, msg, files, rooms):
+    def __init__(self, nick, msg, files, rooms, loggedIn, donor, admin):
         self.nick = nick
         self.msg = msg
         self.files = files
         self.rooms = rooms
+        self.loggedIn = loggedIn
+        self.donor = donor
+        self.admin = admin
 
 
 class File:
