@@ -1,4 +1,4 @@
-Volafile-API version 0.2
+Volafile-API version 0.3b
 ============
 
 Requires the websocket-client and requests packages.
@@ -20,69 +20,69 @@ beepi.close()
 ```
 Documentation:
 
-```python
-class Room(builtins.object)
-
-   __init__(self, name=None, user=None)
-       # name is the room name, if none then makes a new room
-       # user is your user name, if none then generates one for you
-   
-   close(self)
-       # close connection to this room
-   
-   getChatLog(self)
-       # returns list of ChatMessage objects for this room
-   
-   getFiles(self)
-       # returns list of File objects for this room.
-   
-   getUserCount(self)
-       # returns number of users in this room
-   
-   postChat(self, msg)
-       # Posts a msg to this room's chat
-   
-   uploadFile(self, filename)
-       # uploads a file with given filename to this room.
-   
-   userChangeNick(self, new_nick)
-       # Change the name of your user.
-       # Note: Must be logged out to change nick.
-   
-   userLogin(self, password)
-       # Attempts to log in as the current user with given password.
-   
-   userLogout(self)
-       # Logs your user out.
-
-class File(builtins.object)
-    # Basically a struct for a file's info on volafile, with an additional
-    # method to retrieve the file's URL.
+```pydoc
+CLASSES
+    class ChatMessage(builtins.object)
+     |  Basically a struct for a chat message. self.msg holds the
+     |  text of the message, files is a list of Files that were
+     |  linked in the message, and rooms are a list of room
+     |  linked in the message.
+     |  
+     |  Methods defined here:
+     |  
+     |  __init__(self, nick, msg, files, rooms)
     
-    # Constructor
-    __init__(self, fileID, name, fileType, uploader)
+    class File(builtins.object)
+     |  Basically a struct for a file's info on volafile, with an additional
+     |  method to retrieve the file's URL.
+     |  
+     |  Methods defined here:
+     |  
+     |  __init__(self, fileID, name, fileType, uploader)
+     |  
+     |  getURL(self)
     
-    # Gets the URL for downloading the file
-    getURL(self)
-
-    # Fields
-    self.fileID
-    self.name
-    self.fileType
-    self.uploader
-    
-class ChatMessage(builtins.object)
-    # Basically a struct for a chat message. self.msg holds the
-    # text of the message, files is a list of Files that were
-    # linked in the message, and rooms are a list of rooms 
-    # linked in the message.
-
-    # Constructor
-    __init__(self, nick, msg, files, rooms)
-
-    # Fields
-    self.nick
-    self.msg
-    self.files
-    self.rooms
+    class Room(builtins.object)
+     |  Use this to interact with a room as a user
+     |  Example:
+     |      r = Room("BEEPi", "ptc")
+     |      r.postChat("Hello, world!")
+     |      r.uploadFile("onii-chan.ogg")
+     |      r.close()
+     |  
+     |  Methods defined here:
+     |  
+     |  __init__(self, name=None, user=None)
+     |      name is the room name, if none then makes a new room
+     |      user is your user name, if none then generates one for you
+     |  
+     |  close(self)
+     |      Close connection to this room
+     |  
+     |  getChatLog(self)
+     |      Returns list of ChatMessage objects for this room
+     |  
+     |  getFiles(self)
+     |      Returns list of File objects for this room
+     |  
+     |  getUserCount(self)
+     |      Returns number of users in this room
+     |  
+     |  postChat(self, msg)
+     |      Posts a msg to this room's chat
+     |  
+     |  uploadFile(self, filename, uploadAs=None, blocksize=None, cb=None)
+     |      Uploads a file with given filename to this room.
+     |      You may specify uploadAs to change the name it is uploaded as.
+     |      You can also specify a blocksize and a callback if you wish.
+     |  
+     |  userChangeNick(self, new_nick)
+     |      Change the name of your user
+     |      Note: Must be logged out to change nick
+     |  
+     |  userLogin(self, password)
+     |      Attempts to log in as the current user with given password
+     |  
+     |  userLogout(self)
+     |      Logs your user out
 ```
