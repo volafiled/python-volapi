@@ -122,9 +122,9 @@ class Room:
                     elif part['type'] == 'url':
                         msg += part['text']
                 options = item[0][1][1]['options']
-                user = 'user' in options.keys()
-                donator = 'donator' in options.keys()
                 admin = 'admin' in options.keys()
+                user = 'user' in options.keys() or admin
+                donator = 'donator' in options.keys()
                 cm = ChatMessage(nick, msg, files, rooms, user, donator, admin)
                 self.chatLog.append(cm)
 
@@ -150,7 +150,6 @@ class Room:
 
     def postChat(self, msg):
         """Posts a msg to this room's chat"""
-        msg = self._escape(msg)
         self._make_call("chat", [self.user.name, msg])
 
     def uploadFile(self, filename, uploadAs=None, blocksize=None, cb=None):
@@ -159,7 +158,7 @@ class Room:
         You may specify uploadAs to change the name it is uploaded as.
         You can also specify a blocksize and a callback if you wish."""
         f = filename if hasattr(filename, "read") else open(filename, 'rb')
-        filename = self._escape(uploadAs or os.path.split(filename)[1])
+        filename = uploadAs or os.path.split(filename)[1]
 
         files = Data({'file': {"name": filename, "value": f}},
                      blocksize=blocksize,
@@ -200,7 +199,6 @@ class Room:
         if self.user.loggedIn:
             raise RuntimeError("User must be logged out")
 
-        new_nick = self._escape(new_nick)
         self._make_call("command", [self.user.name, "nick", new_nick])
         self.user.name = new_nick
 
@@ -238,9 +236,6 @@ class Room:
                                                "room": self.name
                                                }).text)
         return info['key'], info['server']
-
-    def _escape(self, string):
-        return string.replace('\\', '\\\\').replace('"', '\\"')
 
     def _getChecksums(self):
         text = requests.get(BASE_ROOM_URL + self.name).text
