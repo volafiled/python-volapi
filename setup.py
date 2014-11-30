@@ -15,15 +15,17 @@ You should have received a copy of the GNU General Public License
 along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 '''
 from setuptools import setup
+
 import re
+
 
 def find_version(filename):
     """
     Build a path from *file_paths* and search for a ``__version__``
     string inside.
     """
-    with open(filename, 'r') as f:
-        version_file = f.read()
+    with open(filename, 'r') as filep:
+        version_file = filep.read()
         version_match = re.search(r"^__version__ = ['\"]([^'\"]*)['\"]", version_file, re.M)
         if version_match:
             return version_match.group(1)
@@ -33,7 +35,7 @@ setup(
     name='volapi',
     version=find_version('volapi/volapi.py'),
     description='RESTful API for Volafile.io',
-    long_description=open('README.md', 'r').read(),
+    long_description=open('README.rst', 'r').read(),
     url='https://github.com/PhearTheCeal/Volafile-API',
     license='GPLv3',
     author='PhearTheCeal',
