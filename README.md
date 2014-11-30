@@ -22,7 +22,7 @@ Documentation:
 
 ```pydoc
 CLASSES
-class ChatMessage(builtins.object)
+    class ChatMessage(builtins.object)
      |  Basically a struct for a chat message. self.msg holds the
      |  text of the message, files is a list of Files that were
      |  linked in the message, and rooms are a list of room
