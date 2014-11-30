@@ -22,7 +22,7 @@ import re
 import string
 import time
 
-import requests as _requests
+import requests
 import websocket
 
 from threading import Condition, Thread
@@ -30,9 +30,6 @@ from threading import Condition, Thread
 from .multipart import Data
 
 __version__ = "0.5"
-
-requests = _requests.Session()
-requests.headers.update({"User-Agent": "Volafile-API/{}".format(__version__)})
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -57,11 +54,15 @@ class Room:
         """name is the room name, if none then makes a new room
         user is your user name, if none then generates one for you"""
 
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": "Volafile-API/{}".
+                                    format(__version__)})
+
         self.name = name
         if not self.name:
-            name = requests.get(BASE_URL + "/new").url
+            name = self.session.get(BASE_URL + "/new").url
             self.name = re.search(r'r/(.+?)$', name).group(1)
-        self.user = User(user or self._randomID(5))
+        self.user = User(user or self._randomID(5), self.session)
         checksum, checksum2 = self._getChecksums()
         self.ws_url = BASE_WS_URL
         self.ws_url += "?rn=" + self._randomID(6)
@@ -234,11 +235,11 @@ class Room:
                   'filename': filename
                   }
 
-        return requests.post("https://{}/upload".format(server),
-                             params=params,
-                             data=files,
-                             headers=headers
-                             )
+        return self.session.post("https://{}/upload".format(server),
+                                 params=params,
+                                 data=files,
+                                 headers=headers
+                                 )
 
     def close(self):
         """Close connection to this room"""
@@ -271,13 +272,13 @@ class Room:
         params = {"name": self.user.name,
                   "password": password
                   }
-        json_resp = json.loads(requests.get(BASE_REST_URL + "login",
-                                            params=params).text)
+        json_resp = json.loads(self.session.get(BASE_REST_URL + "login",
+                                                params=params).text)
         if 'error' in json_resp.keys():
             raise ValueError("Login unsuccessful: {}".
                              format(json_resp["error"]))
         self._make_call("useSession", [json_resp["session"]])
-        requests.cookies.update({"session": json_resp["session"]})
+        self.session.cookies.update({"session": json_resp["session"]})
         self.user.login()
 
     def userLogout(self):
@@ -292,16 +293,16 @@ class Room:
         return ''.join(r() for _ in range(n))
 
     def _generateUploadKey(self):
-        info = json.loads(requests.get(BASE_REST_URL + "getUploadKey",
-                                       params={"name": self.user.name,
-                                               "room": self.name
-                                               }).text)
+        info = json.loads(self.session.get(BASE_REST_URL + "getUploadKey",
+                                           params={"name": self.user.name,
+                                                   "room": self.name
+                                                   }).text)
         return info['key'], info['server']
 
     def _getChecksums(self):
-        text = requests.get(BASE_ROOM_URL + self.name).text
+        text = self.session.get(BASE_ROOM_URL + self.name).text
         cs2 = re.search(r'checksum2\s*:\s*"(\w+?)"', text).group(1)
-        text = requests.get(
+        text = self.session.get(
             "https://static.volafile.io/static/js/main.js?c=" + cs2).text
         cs1 = re.search(r'config\.checksum\s*=\s*"(\w+?)"', text).group(1)
 
@@ -348,13 +349,14 @@ class File:
 class User:
     """Used by Room. Currently not very useful by itself"""
 
-    def __init__(self, name):
+    def __init__(self, name, session):
         self.name = name
+        self.session = session
         self.loggedIn = False
 
     def getStats(self):
-        return json.loads(requests.get(BASE_REST_URL + "getUserInfo",
-                          params={"name": self.name}).text)
+        return json.loads(self.session.get(BASE_REST_URL + "getUserInfo",
+                                           params={"name": self.name}).text)
 
     def login(self):
         self.loggedIn = True
