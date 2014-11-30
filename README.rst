@@ -2,10 +2,16 @@
 Volafile API (volapi)
 =====================
 
-Installation::
+Installation
+------------
+::
+
     pip3 install volapi
 
-Example::
+Example
+-------
+::
+
     from volapi import Room
     beepi = Room("BEEPi", "ptc")
     beepi.postChat("kek")
