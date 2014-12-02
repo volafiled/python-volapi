@@ -89,26 +89,34 @@ class Room:
         def listen():
             barrier.wait()
             last_time = time.time()
-            while self.ws.connected:
-                new_data = self.ws.recv()
-                if new_data[0] == '1':
-                    print("Volafile has requested this connection close.")
-                    self.close()
-                elif new_data[0] == '4':
-                    json_data = json.loads(new_data[1:])
-                    if type(json_data) is list and len(json_data) > 1:
-                        self.maxID = int(json_data[1][-1])
-                        self._addData(json_data)
-                        with self.condition:
-                            self.condition.notify_all()
-                else:
-                    pass  # not implemented
+            try:
+                while self.ws.connected:
+                    new_data = self.ws.recv()
+                    if new_data[0] == '1':
+                        self.close()
+                        break
+                    elif new_data[0] == '4':
+                        json_data = json.loads(new_data[1:])
+                        if type(json_data) is list and len(json_data) > 1:
+                            self.maxID = int(json_data[1][-1])
+                            self._addData(json_data)
+                            with self.condition:
+                                self.condition.notify_all()
+                    else:
+                        pass  # not implemented
 
-                # send max msg ID seen every 10 seconds
-                if time.time() > last_time + 10:
-                    msg = "4" + to_json([self.maxID])
-                    self.ws.send(msg)
-                    last_time = time.time()
+                    # send max msg ID seen every 10 seconds
+                    if time.time() > last_time + 10:
+                        msg = "4" + to_json([self.maxID])
+                        self.ws.send(msg)
+                        last_time = time.time()
+            finally:
+                try: self.close()
+                except: pass
+                self.connected = False
+                # Notify that the listener is down now
+                with self.condition:
+                    self.condition.notify_all()
 
         def ping():
             while self.ws.connected:
