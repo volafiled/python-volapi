@@ -19,11 +19,14 @@ import json
 import os
 import random
 import re
-import requests as _requests
 import string
-import _thread
 import time
+
+import requests as _requests
 import websocket
+
+from threading import Condition, Thread
+
 from .multipart import Data
 
 __version__ = "0.5"
@@ -72,6 +75,7 @@ class Room:
         self.files = []
         self.chatLog = []
         self.maxID = 0
+        self.condition = Condition()
 
         self._listenForever()
 
@@ -90,6 +94,8 @@ class Room:
                     if type(json_data) is list and len(json_data) > 1:
                         self.maxID = int(json_data[1][-1])
                         self._addData(json_data)
+                        with self.condition:
+                            self.condition.notify_all()
                 else:
                     pass  # not implemented
 
@@ -104,8 +110,8 @@ class Room:
                 self.ws.send('2')
                 time.sleep(20)
 
-        _thread.start_new_thread(listen, ())
-        _thread.start_new_thread(ping, ())
+        Thread(target=listen, daemon=True).start()
+        Thread(target=ping, daemon=True).start()
 
     def _addData(self, data):
         for item in data[1:]:
@@ -142,6 +148,46 @@ class Room:
                 donator = 'donator' in options.keys()
                 cm = ChatMessage(nick, msg, files, rooms, user, donator, admin)
                 self.chatLog.append(cm)
+
+    def listen(self, onmessage=None, onfile=None, onusercount=None):
+        """Listen for incoming events.
+        You need to at least provide one of the possible listener functions.
+        You can detach a listener by returning False (exactly, not just a
+        false-y value).
+        The function will not return unless all listeners are detached again or
+        the WebSocket connection is closed.
+        """
+        if not onmessage and not onfile and not onusercount:
+            raise ValueError("At least one of onmessage, onfile, onusercount "
+                             "must be specified")
+        last_user, last_msg, last_file = 0, 0, 0
+        with self.condition:
+            while self.connected and (onmessage or onfile or onusercount):
+                while (len(self.chatLog) == last_msg and
+                       len(self.files) == last_file and
+                       self.userCount == last_user and
+                       self.connected):
+                    self.condition.wait()
+
+                if onusercount and self.userCount != last_user:
+                    if onusercount(self.userCount) is False:
+                        # detach
+                        onusercount = None
+                last_user = self.userCount
+
+                while onfile and last_file < len(self.files):
+                    if onfile(self.files[last_file]) is False:
+                        # detach
+                        onfile = None
+                    last_file += 1
+                last_file = len(self.files)
+
+                while onmessage and last_msg < len(self.chatLog):
+                    if onmessage(self.chatLog[last_msg]) is False:
+                        # detach
+                        onmessage = None
+                    last_msg += 1
+                last_msg = len(self.chatLog)
 
     def getChatLog(self):
         """Returns list of ChatMessage objects for this room"""
@@ -278,6 +324,9 @@ class ChatMessage:
         self.donor = donor
         self.admin = admin
 
+    def __repr__(self):
+        return "<Msg({},{})>".format(self.nick, self.msg)
+
 
 class File:
     """Basically a struct for a file's info on volafile, with an additional
@@ -291,6 +340,9 @@ class File:
 
     def getURL(self):
         return "{}/get/{}/{}".format(BASE_URL, self.fileID, self.name)
+
+    def __repr__(self):
+        return "<File({},{},{})>".format(self.fileID, self.uploader, self.name)
 
 
 class User:
@@ -309,3 +361,6 @@ class User:
 
     def logout(self):
         self.loggedIn = False
+
+    def __repr__(self):
+        return "<User({}, {})>".format(self.name, self.loggedIn)
