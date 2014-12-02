@@ -25,7 +25,7 @@ import time
 import requests
 import websocket
 
-from threading import Condition, Thread
+from threading import Barrier, Condition, Thread
 
 from .multipart import Data
 
@@ -83,7 +83,11 @@ class Room:
     def _listenForever(self):
         """Listens for new data about the room from the websocket
         and updates Room state accordingly."""
+
+        barrier = Barrier(2)
+
         def listen():
+            barrier.wait()
             last_time = time.time()
             while self.ws.connected:
                 new_data = self.ws.recv()
@@ -113,6 +117,7 @@ class Room:
 
         Thread(target=listen, daemon=True).start()
         Thread(target=ping, daemon=True).start()
+        barrier.wait()
 
     def _addData(self, data):
         for item in data[1:]:
