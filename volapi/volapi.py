@@ -69,7 +69,6 @@ class Room:
         self.ws_url += "&EIO=3&transport=websocket"
         self.ws_url += "&t=" + str(int(time.time()*1000))
         self.ws = websocket.create_connection(self.ws_url)
-        self.connected = True
         self._subscribe(checksum, checksum2)
         self.sendCount = 1
         self.userCount = 0
@@ -79,6 +78,10 @@ class Room:
         self.condition = Condition()
 
         self._listenForever()
+
+    @property
+    def connected(self):
+        return self.ws.connected
 
     def _listenForever(self):
         """Listens for new data about the room from the websocket
@@ -90,7 +93,7 @@ class Room:
             barrier.wait()
             last_time = time.time()
             try:
-                while self.ws.connected:
+                while self.connected:
                     new_data = self.ws.recv()
                     if new_data[0] == '1':
                         self.close()
@@ -113,13 +116,12 @@ class Room:
             finally:
                 try: self.close()
                 except: pass
-                self.connected = False
                 # Notify that the listener is down now
                 with self.condition:
                     self.condition.notify_all()
 
         def ping():
-            while self.ws.connected:
+            while self.connected:
                 self.ws.send('2')
                 time.sleep(20)
 
@@ -257,7 +259,6 @@ class Room:
     def close(self):
         """Close connection to this room"""
         self.ws.close()
-        self.connected = False
 
     def _subscribe(self, checksum, checksum2):
         o = [-1, [[0, ["subscribe", {"room": self.name,
