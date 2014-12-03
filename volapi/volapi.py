@@ -14,6 +14,7 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 '''
+# pylint: disable=bad-continuation
 
 import json
 import os
@@ -37,8 +38,9 @@ BASE_REST_URL = BASE_URL + "/rest/"
 BASE_WS_URL = "wss://volafile.io/api/"
 
 
-def to_json(o):
-    return json.dumps(o, separators=(',', ':'))
+def to_json(obj):
+    """Create a compact JSON string from an object"""
+    return json.dumps(obj, separators=(',', ':'))
 
 
 class Room:
@@ -56,32 +58,32 @@ class Room:
 
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "Volafile-API/{}".
-                                    format(__version__)})
+                                                   format(__version__)})
 
         self.name = name
         if not self.name:
             name = self.session.get(BASE_URL + "/new").url
             self.name = re.search(r'r/(.+?)$', name).group(1)
-        self.user = User(user or self._random_ID(5), self.session)
+        self.user = User(user or self._random_id(5), self.session)
         checksum, checksum2 = self._get_checksums()
-        self.ws_url = BASE_WS_URL
-        self.ws_url += "?rn=" + self._random_ID(6)
-        self.ws_url += "&EIO=3&transport=websocket"
-        self.ws_url += "&t=" + str(int(time.time()*1000))
-        self.ws = websocket.create_connection(self.ws_url)
+        ws_url = ("{}?rn={}&EIO=3&transport=websocket&t={}".
+                  format(BASE_WS_URL, self._random_id(6),
+                         int(time.time() * 1000)))
+        self.sock = websocket.create_connection(ws_url)
         self._subscribe(checksum, checksum2)
         self.send_count = 1
         self.user_count = 0
         self.files = []
         self.chat_log = []
-        self.max_ID = 0
+        self.max_id = 0
         self.condition = Condition()
 
         self._listen_forever()
 
     @property
     def connected(self):
-        return self.ws.connected
+        """Room is connected"""
+        return self.sock.connected
 
     def _listen_forever(self):
         """Listens for new data about the room from the websocket
@@ -90,20 +92,21 @@ class Room:
         barrier = Barrier(2)
 
         def listen():
+            """Thread: Listen to incoming data"""
             barrier.wait()
             last_time = time.time()
             try:
                 while self.connected:
-                    new_data = self.ws.recv()
+                    new_data = self.sock.recv()
                     if not new_data:
-                        pass
-                    elif new_data[0] == '1':
+                        continue
+                    if new_data[0] == '1':
                         self.close()
                         break
                     elif new_data[0] == '4':
                         json_data = json.loads(new_data[1:])
                         if type(json_data) is list and len(json_data) > 1:
-                            self.max_ID = int(json_data[1][-1])
+                            self.max_id = int(json_data[1][-1])
                             self._add_data(json_data)
                             with self.condition:
                                 self.condition.notify_all()
@@ -112,12 +115,13 @@ class Room:
 
                     # send max msg ID seen every 10 seconds
                     if time.time() > last_time + 10:
-                        msg = "4" + to_json([self.max_ID])
-                        self.ws.send(msg)
+                        msg = "4" + to_json([self.max_id])
+                        self.sock.send(msg)
                         last_time = time.time()
             finally:
                 try:
                     self.close()
+                # pylint: disable=bare-except
                 except:
                     pass
                 # Notify that the listener is down now
@@ -125,9 +129,11 @@ class Room:
                     self.condition.notify_all()
 
         def ping():
+            """Thread: ping the server in intervals"""
             while self.connected:
                 try:
-                    self.ws.send('2')
+                    self.sock.send('2')
+                # pylint: disable=bare-except
                 except:
                     break
                 time.sleep(20)
@@ -137,14 +143,18 @@ class Room:
         barrier.wait()
 
     def _add_data(self, data):
+        """Add data to own state"""
         for item in data[1:]:
             data_type = item[0][1][0]
             if data_type == "user_count":
                 self.user_count = item[0][1][1]
             elif data_type == "files":
                 files = item[0][1][1]['files']
-                for f in files:
-                    self.files.append(File(f[0], f[1], f[2], f[6]['user']))
+                for file in files:
+                    self.files.append(File(file[0],
+                                           file[1],
+                                           file[2],
+                                           file[6]['user']))
             elif data_type == "chat":
                 nick = item[0][1][1]['nick']
                 msg_parts = item[0][1][1]['message']
@@ -169,8 +179,12 @@ class Room:
                 admin = 'admin' in options.keys()
                 user = 'user' in options.keys() or admin
                 donator = 'donator' in options.keys()
-                cm = ChatMessage(nick, msg, files, rooms, user, donator, admin)
-                self.chat_log.append(cm)
+
+                msg = ChatMessage(nick, msg, files, rooms,
+                                  logged_in=user,
+                                  donator=donator,
+                                  admin=admin)
+                self.chat_log.append(msg)
 
     def listen(self, onmessage=None, onfile=None, onusercount=None):
         """Listen for incoming events.
@@ -228,27 +242,29 @@ class Room:
         this method was called."""
         return self.files[:]
 
-    def _make_call(self, fn, args):
-        o = {"fn": fn, "args": args}
-        o = [self.max_ID, [[0, ["call", o]], self.send_count]]
-        self.ws.send("4" + to_json(o))
+    def _make_call(self, fun, args):
+        """Makes a regular API call"""
+        obj = {"fn": fun, "args": args}
+        obj = [self.max_id, [[0, ["call", obj]], self.send_count]]
+        self.sock.send("4" + to_json(obj))
         self.send_count += 1
 
     def post_chat(self, msg):
         """Posts a msg to this room's chat"""
         self._make_call("chat", [self.user.name, msg])
 
-    def upload_file(self, filename, upload_as=None, blocksize=None, cb=None):
+    def upload_file(self, filename, upload_as=None, blocksize=None,
+                    callback=None):
         """
         Uploads a file with given filename to this room.
         You may specify upload_as to change the name it is uploaded as.
         You can also specify a blocksize and a callback if you wish."""
-        f = filename if hasattr(filename, "read") else open(filename, 'rb')
+        file = filename if hasattr(filename, "read") else open(filename, 'rb')
         filename = upload_as or os.path.split(filename)[1]
 
-        files = Data({'file': {"name": filename, "value": f}},
+        files = Data({'file': {"name": filename, "value": file}},
                      blocksize=blocksize,
-                     cb=cb)
+                     callback=callback)
 
         headers = {'Origin': 'https://volafile.io'}
         headers.update(files.headers)
@@ -256,28 +272,26 @@ class Room:
         key, server = self._generate_upload_key()
         params = {'room': self.name,
                   'key': key,
-                  'filename': filename
-                  }
+                  'filename': filename}
 
         return self.session.post("https://{}/upload".format(server),
                                  params=params,
                                  data=files,
-                                 headers=headers
-                                 )
+                                 headers=headers)
 
     def close(self):
         """Close connection to this room"""
-        self.ws.close()
-        self.session.close()
+        self.sock.close()
 
     def _subscribe(self, checksum, checksum2):
-        o = [-1, [[0, ["subscribe", {"room": self.name,
-                                     "checksum": checksum,
-                                     "checksum2": checksum2,
-                                     "nick": self.user.name
-                                     }]],
-                  0]]
-        self.ws.send("4" + to_json(o))
+        """Make subscribe API call"""
+        obj = [-1, [[0, ["subscribe", {"room": self.name,
+                                       "checksum": checksum,
+                                       "checksum2": checksum2,
+                                       "nick": self.user.name
+                                       }]],
+                    0]]
+        self.sock.send("4" + to_json(obj))
 
     def user_change_nick(self, new_nick):
         """Change the name of your user
@@ -330,8 +344,7 @@ class Room:
             raise RuntimeError("User already logged in!")
 
         params = {"name": self.user.name,
-                  "password": password
-                  }
+                  "password": password}
         json_resp = json.loads(self.session.get(BASE_REST_URL + "login",
                                                 params=params).text)
         if 'error' in json_resp.keys():
@@ -345,8 +358,8 @@ class Room:
         """Return data about the given user. Returns None if user
         does not exist."""
 
-        r = self.session.get(BASE_URL + "/user/" + name)
-        if r.status_code != 200 or not name:
+        req = self.session.get(BASE_URL + "/user/" + name)
+        if req.status_code != 200 or not name:
             return None
 
         return json.loads(self.session.get(BASE_REST_URL + "getUserInfo",
@@ -359,19 +372,22 @@ class Room:
         self._make_call("logout", [])
         self.user.logout()
 
-    def _random_ID(self, n):
-        def r():
+    def _random_id(self, length):
+        """Generates a random ID of n length"""
+        def char():
+            """Generate single random char"""
             return random.choice(string.ascii_letters + string.digits)
-        return ''.join(r() for _ in range(n))
+        return ''.join(char() for _ in range(length))
 
     def _generate_upload_key(self):
+        """Generates a new upload key"""
         info = json.loads(self.session.get(BASE_REST_URL + "getUploadKey",
                                            params={"name": self.user.name,
-                                                   "room": self.name
-                                                   }).text)
+                                                   "room": self.name}).text)
         return info['key'], info['server']
 
     def _get_checksums(self):
+        """Gets the main checksums"""
         text = self.session.get(BASE_ROOM_URL + self.name).text
         cs2 = re.search(r'checksum2\s*:\s*"(\w+?)"', text).group(1)
         text = self.session.get(
@@ -387,15 +403,15 @@ class ChatMessage:
     linked in the message, and rooms are a list of room
     linked in the message. There are also flags for whether the
     user of the message was logged in, a donor, or an admin."""
+    # pylint: disable=too-few-public-methods
 
-    def __init__(self, nick, msg, files, rooms, logged_in, donor, admin):
+    def __init__(self, nick, msg, files, rooms, **kw):
         self.nick = nick
         self.msg = msg
         self.files = files
         self.rooms = rooms
-        self.logged_in = logged_in
-        self.donor = donor
-        self.admin = admin
+        for key in ("logged_in", "donor", "admin"):
+            setattr(self, key, kw.get(key, False))
 
     def __repr__(self):
         return "<Msg({},{})>".format(self.nick, self.msg)
@@ -404,18 +420,21 @@ class ChatMessage:
 class File:
     """Basically a struct for a file's info on volafile, with an additional
     method to retrieve the file's URL."""
+    # pylint: disable=too-few-public-methods
 
-    def __init__(self, file_ID, name, file_type, uploader):
-        self.file_ID = file_ID
+    def __init__(self, file_id, name, file_type, uploader):
+        self.file_id = file_id
         self.name = name
         self.file_type = file_type
         self.uploader = uploader
 
-    def get_URL(self):
-        return "{}/get/{}/{}".format(BASE_URL, self.file_ID, self.name)
+    @property
+    def url(self):
+        """Gets the download url of the file"""
+        return "{}/get/{}/{}".format(BASE_URL, self.file_id, self.name)
 
     def __repr__(self):
-        return "<File({},{},{})>".format(self.file_ID, self.uploader,
+        return "<File({},{},{})>".format(self.file_id, self.uploader,
                                          self.name)
 
 
@@ -428,9 +447,11 @@ class User:
         self.logged_in = False
 
     def login(self):
+        """Set user object to logged in"""
         self.logged_in = True
 
     def logout(self):
+        """Set user object to logged out"""
         self.logged_in = False
 
     def __repr__(self):

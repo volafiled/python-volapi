@@ -19,5 +19,5 @@ if __name__ == "__main__":
 
     r = Room(sys.argv[1])
     r.user_change_nick("DumbUpload")
-    r.upload_file(__file__, cb=callback)
+    r.upload_file(__file__, callback=callback)
 

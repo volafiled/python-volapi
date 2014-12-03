@@ -31,14 +31,14 @@ def generate_boundary():
     return uuid.uuid4().hex
 
 
-def escape_header(v):
+def escape_header(val):
     """Escapes a value so that it can be used in a mime header"""
-    if v is None:
+    if val is None:
         return None
     try:
-        return quote(v, encoding="ascii", safe="/ ")
-    except:
-        return "utf-8''" + quote(v, encoding="utf-8", safe="/ ")
+        return quote(val, encoding="ascii", safe="/ ")
+    except ValueError:
+        return "utf-8''" + quote(val, encoding="utf-8", safe="/ ")
 
 
 def make_streams(name, value, boundary, encoding):
@@ -65,33 +65,33 @@ def make_streams(name, value, boundary, encoding):
 
     name, filename, mime = [escape_header(v) for v in (name, filename, mime)]
 
-    s = BytesIO()
-    s.write("--{}\r\n".format(boundary).encode(encoding))
+    stream = BytesIO()
+    stream.write("--{}\r\n".format(boundary).encode(encoding))
     if not filename:
-        s.write('Content-Disposition: form-data; name="{}"\r\n'.
-                format(name).encode(encoding))
+        stream.write('Content-Disposition: form-data; name="{}"\r\n'.
+                     format(name).encode(encoding))
     else:
-        s.write('Content-Disposition: form-data; name="{}"; filename="{}"\r\n'.
-                format(name, filename).encode(encoding))
+        stream.write('Content-Disposition: form-data; name="{}"; filename="{}"\r\n'.
+                     format(name, filename).encode(encoding))
         if mime:
-            s.write('Content-Type: {}\r\n'.format(mime).encode(encoding))
-    s.write(b"\r\n")
+            stream.write('Content-Type: {}\r\n'.format(mime).encode(encoding))
+    stream.write(b"\r\n")
 
     if hasattr(value, "read"):
-        s.seek(0)
-        return s, value, BytesIO("\r\n".encode(encoding))
+        stream.seek(0)
+        return stream, value, BytesIO("\r\n".encode(encoding))
 
     # not a file-like object, encode headers and value in one go
     value = (value
              if isinstance(value, str) or isinstance(value, bytes)
              else json.dumps(value))
     if isinstance(value, bytes):
-        s.write(value)
+        stream.write(value)
     else:
-        s.write(value.encode(encoding))
-    s.write(b"\r\n")
-    s.seek(0)
-    return s,
+        stream.write(value.encode(encoding))
+    stream.write(b"\r\n")
+    stream.seek(0)
+    return stream,
 
 
 class Data(object):
@@ -115,11 +115,11 @@ class Data(object):
     into memory at once
     """
 
-    def __init__(self, values, blocksize=0, encoding="utf-8", cb=None):
+    def __init__(self, values, blocksize=0, encoding="utf-8", callback=None):
         self.encoding = encoding or "utf-8"
         self.boundary = generate_boundary()
         self.streams = []
-        self.cb = cb or None
+        self.callback = callback or None
         self.blocksize = blocksize
         if not self.blocksize or self.blocksize <= 0:
             self.blocksize = (1 << 17)
@@ -131,13 +131,14 @@ class Data(object):
                                     format(self.boundary).encode(encoding)))
 
     def __len__(self):
-        def stream_len(s):
-            cur = s.tell()
+        def stream_len(stream):
+            """Stream length"""
+            cur = stream.tell()
             try:
-                s.seek(0, 2)
-                return s.tell() - cur
+                stream.seek(0, 2)
+                return stream.tell() - cur
             finally:
-                s.seek(cur)
+                stream.seek(cur)
 
         return sum(stream_len(s) for s in self.streams)
 
@@ -148,57 +149,58 @@ class Data(object):
                                  format(self.boundary)),
                 "Content-Length": str(len(self)),
                 "Content-Encoding": self.encoding
-                }
+               }
 
     def __iter__(self):
         with self:
             total = None
-            if self.cb:
+            if self.callback:
                 total = len(self)
             pos = 0
             remainder = self.blocksize
-            b = BytesIO()
-            s = self.streams.pop(0)
-            while s:
-                with s:
+            buf = BytesIO()
+            stream = self.streams.pop(0)
+            while stream:
+                with stream:
                     while remainder:
-                        cur = s.read(remainder)
+                        cur = stream.read(remainder)
                         if not cur:
                             break
-                        b.write(cur)
+                        buf.write(cur)
                         remainder -= len(cur)
                         if not remainder:
-                            v = b.getvalue()
-                            yield v
-                            if self.cb:
-                                pos += len(v)
-                                self.cb(pos, total)
+                            val = buf.getvalue()
+                            yield val
+                            if self.callback:
+                                pos += len(val)
+                                self.callback(pos, total)
                             remainder = self.blocksize
-                            b = BytesIO()
+                            buf = BytesIO()
                 try:
-                    s = self.streams.pop(0)
+                    stream = self.streams.pop(0)
                 except IndexError:
                     break
 
-            last = b.getvalue()
+            last = buf.getvalue()
             if not last:
                 return
 
-            l = len(last)
+            pos += len(last)
             yield last
-            if self.cb:
-                self.cb(pos + l, total)
+            if self.callback:
+                self.callback(pos, total)
 
     def __enter__(self):
         pass
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(self, extype, value, traceback):
         self.close()
 
     def close(self):
+        """Close multipart instance and all associated streams"""
         try:
-            for s in self.streams:
-                with s:
+            for stream in self.streams:
+                with stream:
                     pass
         finally:
             del self.streams[:]
@@ -206,30 +208,38 @@ class Data(object):
 
 if __name__ == "__main__":
     import requests
-    from sys import argv, exit, stderr, stdout
+    import sys
 
-    def cb(cur, tot):
-        print(cur, tot, "{:.2%}".format(float(cur) / tot), file=stderr)
+    def my_callback(cur, tot):
+        """multipart callback"""
+        print(cur, tot, "{:.2%}".format(float(cur) / tot), file=sys.stderr)
 
-    data = {"abc": "def",
-            "123": 345,
-            "flt": 1.0,
-            "json": {"hellow": ["world"]},
-            "special": {"name": "huhu русский язык 中文", "value": "value"},
-            "file1": open(__file__, "rb"),
-            "file2": {"name": "file.py",
-                      "value": open(__file__, "rb"),
-                      "mime": "application/x-python"}
-            }
-    data = Data(data, cb=cb, blocksize=100)
+    def main():
+        """main()"""
+        multipart = {"abc": "def",
+                     "123": 345,
+                     "flt": 1.0,
+                     "json": {"hellow": ["world"]},
+                     "special": {"name": "huhu русский язык 中文",
+                                 "value": "value"},
+                     "file1": open(__file__, "rb"),
+                     "file2": {"name": "file.py",
+                               "value": open(__file__, "rb"),
+                               "mime": "application/x-python"}
+                    }
+        multipart = Data(multipart, callback=my_callback, blocksize=100)
 
-    if len(argv) > 1:
-        print(requests.post(argv[1], headers=data.headers, data=data).content)
-        exit(0)
+        if len(sys.argv) > 1:
+            print(requests.post(sys.argv[1],
+                                headers=multipart.headers,
+                                data=multipart).content)
+            sys.exit(0)
 
-    for k, v in data.headers.items():
-        print("{}: {}".format(k, v), file=stderr)
-    for i in data:
-        stdout.buffer.write(i)
-        stdout.flush()
-    exit(0)
+        for key, val in multipart.headers.items():
+            print("{}: {}".format(key, val), file=sys.stderr)
+        for i in multipart:
+            sys.stdout.buffer.write(i)
+            sys.stdout.flush()
+        sys.exit(0)
+
+    main()
