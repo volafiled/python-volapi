@@ -19,17 +19,17 @@ import json
 import os
 import random
 import re
-import requests as _requests
 import string
-import _thread
 import time
+
+import requests
 import websocket
+
+from threading import Barrier, Condition, Thread
+
 from .multipart import Data
 
 __version__ = "0.5"
-
-requests = _requests.Session()
-requests.headers.update({"User-Agent": "Volafile-API/{}".format(__version__)})
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -54,58 +54,80 @@ class Room:
         """name is the room name, if none then makes a new room
         user is your user name, if none then generates one for you"""
 
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": "Volafile-API/{}".
+                                    format(__version__)})
+
         self.name = name
         if not self.name:
-            name = requests.get(BASE_URL + "/new").url
+            name = self.session.get(BASE_URL + "/new").url
             self.name = re.search(r'r/(.+?)$', name).group(1)
-        self.user = User(user or self._randomID(5))
+        self.user = User(user or self._randomID(5), self.session)
         checksum, checksum2 = self._getChecksums()
         self.ws_url = BASE_WS_URL
         self.ws_url += "?rn=" + self._randomID(6)
         self.ws_url += "&EIO=3&transport=websocket"
         self.ws_url += "&t=" + str(int(time.time()*1000))
         self.ws = websocket.create_connection(self.ws_url)
-        self.connected = True
         self._subscribe(checksum, checksum2)
         self.sendCount = 1
         self.userCount = 0
         self.files = []
         self.chatLog = []
         self.maxID = 0
+        self.condition = Condition()
 
         self._listenForever()
+
+    @property
+    def connected(self):
+        return self.ws.connected
 
     def _listenForever(self):
         """Listens for new data about the room from the websocket
         and updates Room state accordingly."""
-        def listen():
-            last_time = time.time()
-            while self.ws.connected:
-                new_data = self.ws.recv()
-                if new_data[0] == '1':
-                    print("Volafile has requested this connection close.")
-                    self.close()
-                elif new_data[0] == '4':
-                    json_data = json.loads(new_data[1:])
-                    if type(json_data) is list and len(json_data) > 1:
-                        self.maxID = int(json_data[1][-1])
-                        self._addData(json_data)
-                else:
-                    pass  # not implemented
 
-                # send max msg ID seen every 10 seconds
-                if time.time() > last_time + 10:
-                    msg = "4" + to_json([self.maxID])
-                    self.ws.send(msg)
-                    last_time = time.time()
+        barrier = Barrier(2)
+
+        def listen():
+            barrier.wait()
+            last_time = time.time()
+            try:
+                while self.connected:
+                    new_data = self.ws.recv()
+                    if new_data[0] == '1':
+                        self.close()
+                        break
+                    elif new_data[0] == '4':
+                        json_data = json.loads(new_data[1:])
+                        if type(json_data) is list and len(json_data) > 1:
+                            self.maxID = int(json_data[1][-1])
+                            self._addData(json_data)
+                            with self.condition:
+                                self.condition.notify_all()
+                    else:
+                        pass  # not implemented
+
+                    # send max msg ID seen every 10 seconds
+                    if time.time() > last_time + 10:
+                        msg = "4" + to_json([self.maxID])
+                        self.ws.send(msg)
+                        last_time = time.time()
+            finally:
+                try: self.close()
+                except: pass
+                # Notify that the listener is down now
+                with self.condition:
+                    self.condition.notify_all()
 
         def ping():
-            while self.ws.connected:
+            while self.connected:
                 self.ws.send('2')
                 time.sleep(20)
 
-        _thread.start_new_thread(listen, ())
-        _thread.start_new_thread(ping, ())
+        Thread(target=listen, daemon=True).start()
+        Thread(target=ping, daemon=True).start()
+        barrier.wait()
 
     def _addData(self, data):
         for item in data[1:]:
@@ -142,6 +164,46 @@ class Room:
                 donator = 'donator' in options.keys()
                 cm = ChatMessage(nick, msg, files, rooms, user, donator, admin)
                 self.chatLog.append(cm)
+
+    def listen(self, onmessage=None, onfile=None, onusercount=None):
+        """Listen for incoming events.
+        You need to at least provide one of the possible listener functions.
+        You can detach a listener by returning False (exactly, not just a
+        false-y value).
+        The function will not return unless all listeners are detached again or
+        the WebSocket connection is closed.
+        """
+        if not onmessage and not onfile and not onusercount:
+            raise ValueError("At least one of onmessage, onfile, onusercount "
+                             "must be specified")
+        last_user, last_msg, last_file = 0, 0, 0
+        with self.condition:
+            while self.connected and (onmessage or onfile or onusercount):
+                while (len(self.chatLog) == last_msg and
+                       len(self.files) == last_file and
+                       self.userCount == last_user and
+                       self.connected):
+                    self.condition.wait()
+
+                if onusercount and self.userCount != last_user:
+                    if onusercount(self.userCount) is False:
+                        # detach
+                        onusercount = None
+                last_user = self.userCount
+
+                while onfile and last_file < len(self.files):
+                    if onfile(self.files[last_file]) is False:
+                        # detach
+                        onfile = None
+                    last_file += 1
+                last_file = len(self.files)
+
+                while onmessage and last_msg < len(self.chatLog):
+                    if onmessage(self.chatLog[last_msg]) is False:
+                        # detach
+                        onmessage = None
+                    last_msg += 1
+                last_msg = len(self.chatLog)
 
     def getChatLog(self):
         """Returns list of ChatMessage objects for this room"""
@@ -188,16 +250,15 @@ class Room:
                   'filename': filename
                   }
 
-        return requests.post("https://{}/upload".format(server),
-                             params=params,
-                             data=files,
-                             headers=headers
-                             )
+        return self.session.post("https://{}/upload".format(server),
+                                 params=params,
+                                 data=files,
+                                 headers=headers
+                                 )
 
     def close(self):
         """Close connection to this room"""
         self.ws.close()
-        self.connected = False
 
     def _subscribe(self, checksum, checksum2):
         o = [-1, [[0, ["subscribe", {"room": self.name,
@@ -225,13 +286,13 @@ class Room:
         params = {"name": self.user.name,
                   "password": password
                   }
-        json_resp = json.loads(requests.get(BASE_REST_URL + "login",
-                                            params=params).text)
+        json_resp = json.loads(self.session.get(BASE_REST_URL + "login",
+                                                params=params).text)
         if 'error' in json_resp.keys():
             raise ValueError("Login unsuccessful: {}".
                              format(json_resp["error"]))
         self._make_call("useSession", [json_resp["session"]])
-        requests.cookies.update({"session": json_resp["session"]})
+        self.session.cookies.update({"session": json_resp["session"]})
         self.user.login()
 
     def userLogout(self):
@@ -246,16 +307,16 @@ class Room:
         return ''.join(r() for _ in range(n))
 
     def _generateUploadKey(self):
-        info = json.loads(requests.get(BASE_REST_URL + "getUploadKey",
-                                       params={"name": self.user.name,
-                                               "room": self.name
-                                               }).text)
+        info = json.loads(self.session.get(BASE_REST_URL + "getUploadKey",
+                                           params={"name": self.user.name,
+                                                   "room": self.name
+                                                   }).text)
         return info['key'], info['server']
 
     def _getChecksums(self):
-        text = requests.get(BASE_ROOM_URL + self.name).text
+        text = self.session.get(BASE_ROOM_URL + self.name).text
         cs2 = re.search(r'checksum2\s*:\s*"(\w+?)"', text).group(1)
-        text = requests.get(
+        text = self.session.get(
             "https://static.volafile.io/static/js/main.js?c=" + cs2).text
         cs1 = re.search(r'config\.checksum\s*=\s*"(\w+?)"', text).group(1)
 
@@ -278,6 +339,9 @@ class ChatMessage:
         self.donor = donor
         self.admin = admin
 
+    def __repr__(self):
+        return "<Msg({},{})>".format(self.nick, self.msg)
+
 
 class File:
     """Basically a struct for a file's info on volafile, with an additional
@@ -292,20 +356,27 @@ class File:
     def getURL(self):
         return "{}/get/{}/{}".format(BASE_URL, self.fileID, self.name)
 
+    def __repr__(self):
+        return "<File({},{},{})>".format(self.fileID, self.uploader, self.name)
+
 
 class User:
     """Used by Room. Currently not very useful by itself"""
 
-    def __init__(self, name):
+    def __init__(self, name, session):
         self.name = name
+        self.session = session
         self.loggedIn = False
 
     def getStats(self):
-        return json.loads(requests.get(BASE_REST_URL + "getUserInfo",
-                          params={"name": self.name}).text)
+        return json.loads(self.session.get(BASE_REST_URL + "getUserInfo",
+                                           params={"name": self.name}).text)
 
     def login(self):
         self.loggedIn = True
 
     def logout(self):
         self.loggedIn = False
+
+    def __repr__(self):
+        return "<User({}, {})>".format(self.name, self.loggedIn)
