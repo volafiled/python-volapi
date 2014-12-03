@@ -98,10 +98,9 @@ class Connection(requests.Session):
 class Room:
     """ Use this to interact with a room as a user
     Example:
-        r = Room("BEEPi", "ptc")
-        r.post_chat("Hello, world!")
-        r.upload_file("onii-chan.ogg")
-        r.close()
+        with Room("BEEPi", "ptc") as r:
+            r.post_chat("Hello, world!")
+            r.upload_file("onii-chan.ogg")
     """
 
     def __init__(self, name=None, user=None):

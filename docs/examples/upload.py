@@ -17,7 +17,8 @@ if __name__ == "__main__":
         print("Uploaded {} of {} bytes or {:.2%}".
               format(current, total, float(current) / total))
 
-    r = Room(sys.argv[1])
-    r.user.change_nick("DumbUpload")
-    r.upload_file(__file__, callback=callback)
+    with Room(sys.argv[1]) as r:
+        r.user.change_nick("DumbUpload")
+        r.upload_file(__file__, callback=callback)
+    print("done")
 
