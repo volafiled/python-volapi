@@ -18,6 +18,6 @@ if __name__ == "__main__":
               format(current, total, float(current) / total))
 
     r = Room(sys.argv[1])
-    r.userChangeNick("DumbUpload")
-    r.uploadFile(__file__, cb=callback)
+    r.user_change_nick("DumbUpload")
+    r.upload_file(__file__, cb=callback)
 

@@ -14,14 +14,14 @@ def listen(room):
         if m.admin or m.nick == r.user.name:
             return
         if "parrot" in m.msg.lower():
-            r.postChat("ayy lmao")
+            r.post_chat("ayy lmao")
         elif m.msg.lower() in ("lol", "lel", "kek"):
-            r.postChat("*kok")
+            r.post_chat("*kok")
         else:
-            r.postChat(re.sub(r"\blain\b", "purpleadmin", m.msg, re.I))
+            r.post_chat(re.sub(r"\blain\b", "purpleadmin", m.msg, re.I))
 
     r = Room(room)
-    r.userChangeNick("DumbParrot")
+    r.user_change_nick("DumbParrot")
     r.listen(onmessage=onmessage)
 
 if __name__ == "__main__":
