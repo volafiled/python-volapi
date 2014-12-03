@@ -191,7 +191,7 @@ class Data(object):
                 self.callback(pos, total)
 
     def __enter__(self):
-        pass
+        return self
 
     def __exit__(self, extype, value, traceback):
         self.close()

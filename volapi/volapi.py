@@ -126,6 +126,16 @@ class Room:
 
         self._listen_forever()
 
+    def __repr__(self):
+        return ("<Room({},{},connected={})>".
+                format(self.name, self.user.name, self.connected))
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, extype, value, traceback):
+        self.close()
+
     @property
     def connected(self):
         """Room is connected"""
@@ -334,7 +344,8 @@ class Room:
 
     def close(self):
         """Close connection to this room"""
-        self.conn.close()
+        if self.connected:
+            self.conn.close()
 
     def clear(self):
         """Clears the cached information, if any"""
