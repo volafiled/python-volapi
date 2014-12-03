@@ -21,7 +21,7 @@ def listen(room):
             r.post_chat(re.sub(r"\blain\b", "purpleadmin", m.msg, re.I))
 
     r = Room(room)
-    r.user_change_nick("DumbParrot")
+    r.user.change_nick("DumbParrot")
     r.listen(onmessage=onmessage)
 
 if __name__ == "__main__":

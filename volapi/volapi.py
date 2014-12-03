@@ -38,9 +38,61 @@ BASE_REST_URL = BASE_URL + "/rest/"
 BASE_WS_URL = "wss://volafile.io/api/"
 
 
+def random_id(length):
+    """Generates a random ID of n length"""
+    def char():
+        """Generate single random char"""
+        return random.choice(string.ascii_letters + string.digits)
+    return ''.join(char() for _ in range(length))
+
+
 def to_json(obj):
     """Create a compact JSON string from an object"""
     return json.dumps(obj, separators=(',', ':'))
+
+
+class Connection(requests.Session):
+    """Bundles a requests/websocket pair"""
+    def __init__(self):
+        super().__init__()
+
+        agent = "Volafile-API/{}".format(__version__)
+
+        self.headers.update({"User-Agent": agent})
+
+        ws_url = ("{}?rn={}&EIO=3&transport=websocket&t={}".
+                  format(BASE_WS_URL, random_id(6),
+                         int(time.time() * 1000)))
+        self.websock = websocket.create_connection(
+            ws_url, header=["User-Agent: {}".format(agent)])
+
+        self.max_id = 0
+        self._send_count = 0
+
+    @property
+    def connected(self):
+        """Is connected"""
+        return self.websock.connected
+
+    def recv_message(self, *args, **kw):
+        """Receive a message"""
+        return self.websock.recv(*args, **kw)
+
+    def send_message(self, *args, **kw):
+        """Send a message"""
+        return self.websock.send(*args, **kw)
+
+    def make_call(self, fun, args):
+        """Makes a regular API call"""
+        obj = {"fn": fun, "args": args}
+        obj = [self.max_id, [[0, ["call", obj]], self._send_count]]
+        self.send_message("4" + to_json(obj))
+        self._send_count += 1
+
+    def close(self):
+        """Closes connection pair"""
+        self.websock.close()
+        super().close()
 
 
 class Room:
@@ -56,34 +108,28 @@ class Room:
         """name is the room name, if none then makes a new room
         user is your user name, if none then generates one for you"""
 
-        self.session = requests.Session()
-        self.session.headers.update({"User-Agent": "Volafile-API/{}".
-                                                   format(__version__)})
+        self.conn = Connection()
 
         self.name = name
         if not self.name:
-            name = self.session.get(BASE_URL + "/new").url
+            name = self.conn.get(BASE_URL + "/new").url
             self.name = re.search(r'r/(.+?)$', name).group(1)
-        self.user = User(user or self._random_id(5), self.session)
-        checksum, checksum2 = self._get_checksums()
-        ws_url = ("{}?rn={}&EIO=3&transport=websocket&t={}".
-                  format(BASE_WS_URL, self._random_id(6),
-                         int(time.time() * 1000)))
-        self.sock = websocket.create_connection(ws_url)
-        self._subscribe(checksum, checksum2)
-        self.send_count = 1
-        self.user_count = 0
-        self.files = []
-        self.chat_log = []
-        self.max_id = 0
+        self.user = User(user or random_id(5), self.conn)
         self.condition = Condition()
+
+        self._user_count = 0
+        self._files = []
+        self._chat_log = []
+
+        checksum, checksum2 = self._get_checksums()
+        self._subscribe(checksum, checksum2)
 
         self._listen_forever()
 
     @property
     def connected(self):
         """Room is connected"""
-        return self.sock.connected
+        return self.conn.connected
 
     def _listen_forever(self):
         """Listens for new data about the room from the websocket
@@ -97,7 +143,7 @@ class Room:
             last_time = time.time()
             try:
                 while self.connected:
-                    new_data = self.sock.recv()
+                    new_data = self.conn.recv_message()
                     if not new_data:
                         continue
                     if new_data[0] == '1':
@@ -106,7 +152,7 @@ class Room:
                     elif new_data[0] == '4':
                         json_data = json.loads(new_data[1:])
                         if type(json_data) is list and len(json_data) > 1:
-                            self.max_id = int(json_data[1][-1])
+                            self.conn.max_id = int(json_data[1][-1])
                             self._add_data(json_data)
                             with self.condition:
                                 self.condition.notify_all()
@@ -115,8 +161,8 @@ class Room:
 
                     # send max msg ID seen every 10 seconds
                     if time.time() > last_time + 10:
-                        msg = "4" + to_json([self.max_id])
-                        self.sock.send(msg)
+                        msg = "4" + to_json([self.conn.max_id])
+                        self.conn.send_message(msg)
                         last_time = time.time()
             finally:
                 try:
@@ -132,7 +178,7 @@ class Room:
             """Thread: ping the server in intervals"""
             while self.connected:
                 try:
-                    self.sock.send('2')
+                    self.conn.send_message('2')
                 # pylint: disable=bare-except
                 except:
                     break
@@ -146,45 +192,45 @@ class Room:
         """Add data to own state"""
         for item in data[1:]:
             data_type = item[0][1][0]
+            try:
+                data = item[0][1][1]
+            except ValueError:
+                data = dict()
             if data_type == "user_count":
-                self.user_count = item[0][1][1]
+                self._user_count = data
             elif data_type == "files":
-                files = item[0][1][1]['files']
+                files = data['files']
                 for file in files:
-                    self.files.append(File(file[0],
-                                           file[1],
-                                           file[2],
-                                           file[6]['user']))
+                    self._files += File(file[0],
+                                        file[1],
+                                        file[2],
+                                        file[6]['user']),
             elif data_type == "chat":
-                nick = item[0][1][1]['nick']
-                msg_parts = item[0][1][1]['message']
+                nick = data['nick']
                 files = []
                 rooms = []
                 msg = ""
-                for part in msg_parts:
+                for part in data["message"]:
                     if part['type'] == 'text':
                         msg += part['value']
                     elif part['type'] == 'file':
-                        files.append(File(part['id'],
-                                          part['name'],
-                                          None,
-                                          None))
+                        files += File(part['id'], part['name']),
                         msg += "@" + part['id']
                     elif part['type'] == 'room':
-                        rooms.append(part['id'])
+                        rooms += part["id"],
                         msg += "#" + part['id']
                     elif part['type'] == 'url':
                         msg += part['text']
-                options = item[0][1][1]['options']
-                admin = 'admin' in options.keys()
-                user = 'user' in options.keys() or admin
-                donator = 'donator' in options.keys()
 
-                msg = ChatMessage(nick, msg, files, rooms,
-                                  logged_in=user,
-                                  donator=donator,
-                                  admin=admin)
-                self.chat_log.append(msg)
+                options = data['options']
+                admin = 'admin' in options
+                user = 'user' in options or admin
+                donator = 'donator' in options
+
+                self._chat_log += ChatMessage(nick, msg, files, rooms,
+                                              logged_in=user,
+                                              donator=donator,
+                                              admin=admin),
 
     def listen(self, onmessage=None, onfile=None, onusercount=None):
         """Listen for incoming events.
@@ -200,58 +246,65 @@ class Room:
         last_user, last_msg, last_file = 0, 0, 0
         with self.condition:
             while self.connected and (onmessage or onfile or onusercount):
-                while (len(self.chat_log) == last_msg and
-                       len(self.files) == last_file and
-                       self.user_count == last_user and
+                while (len(self._chat_log) == last_msg and
+                       len(self._files) == last_file and
+                       self._user_count == last_user and
                        self.connected):
                     self.condition.wait()
 
-                if onusercount and self.user_count != last_user:
-                    if onusercount(self.user_count) is False:
+                if onusercount and self._user_count != last_user:
+                    if onusercount(self._user_count) is False:
                         # detach
                         onusercount = None
-                last_user = self.user_count
+                last_user = self._user_count
 
-                while onfile and last_file < len(self.files):
-                    if onfile(self.files[last_file]) is False:
+                while onfile and last_file < len(self._files):
+                    if onfile(self._files[last_file]) is False:
                         # detach
                         onfile = None
                     last_file += 1
-                last_file = len(self.files)
+                last_file = len(self._files)
 
-                while onmessage and last_msg < len(self.chat_log):
-                    if onmessage(self.chat_log[last_msg]) is False:
+                while onmessage and last_msg < len(self._chat_log):
+                    if onmessage(self._chat_log[last_msg]) is False:
                         # detach
                         onmessage = None
                     last_msg += 1
-                last_msg = len(self.chat_log)
+                last_msg = len(self._chat_log)
 
-    def get_chat_log(self):
+    @property
+    def chat_log(self):
         """Returns list of ChatMessage objects for this room.
         Note: This will only reflect the messages at the time
         this method was called."""
-        return self.chat_log[:]
+        return self._chat_log[:]
 
-    def get_user_count(self):
+    @property
+    def user_count(self):
         """Returns number of users in this room"""
-        return self.user_count
+        return self._user_count
 
-    def get_files(self):
+    @property
+    def files(self):
         """Returns list of File objects for this room.
         Note: This will only reflect the files at the time
         this method was called."""
-        return self.files[:]
+        return self._files[:]
 
-    def _make_call(self, fun, args):
-        """Makes a regular API call"""
-        obj = {"fn": fun, "args": args}
-        obj = [self.max_id, [[0, ["call", obj]], self.send_count]]
-        self.sock.send("4" + to_json(obj))
-        self.send_count += 1
+    def get_user_stats(self, name):
+        """Return data about the given user. Returns None if user
+        does not exist."""
+
+        req = self.conn.get(BASE_URL + "/user/" + name)
+        if req.status_code != 200 or not name:
+            return None
+
+        return json.loads(self.conn.get(BASE_REST_URL + "getUserInfo",
+                                        params={"name": name}).text)
 
     def post_chat(self, msg):
         """Posts a msg to this room's chat"""
-        self._make_call("chat", [self.user.name, msg])
+        self.conn.make_call("chat", [self.user.name, msg])
 
     def upload_file(self, filename, upload_as=None, blocksize=None,
                     callback=None):
@@ -274,14 +327,19 @@ class Room:
                   'key': key,
                   'filename': filename}
 
-        return self.session.post("https://{}/upload".format(server),
-                                 params=params,
-                                 data=files,
-                                 headers=headers)
+        return self.conn.post("https://{}/upload".format(server),
+                              params=params,
+                              data=files,
+                              headers=headers)
 
     def close(self):
         """Close connection to this room"""
-        self.sock.close()
+        self.conn.close()
+
+    def clear(self):
+        """Clears the cached information, if any"""
+        del self._chat_log[:]
+        del self._files[:]
 
     def _subscribe(self, checksum, checksum2):
         """Make subscribe API call"""
@@ -291,106 +349,20 @@ class Room:
                                        "nick": self.user.name
                                        }]],
                     0]]
-        self.sock.send("4" + to_json(obj))
-
-    def user_change_nick(self, new_nick):
-        """Change the name of your user
-        Note: Must be logged out to change nick"""
-        if self.user.logged_in:
-            raise RuntimeError("User must be logged out")
-        if len(new_nick) > 12 or len(new_nick) < 3:
-            raise ValueError("Username must be between 3 and 12 characters.")
-        for c in new_nick:
-            if c not in string.ascii_letters:
-                raise ValueError("User names can only contain alphabetical characters.")
-
-        self._make_call("command", [self.user.name, "nick", new_nick])
-        self.user.name = new_nick
-
-    def user_register(self, password):
-        """Registers the current user with the given password."""
-        if len(password) < 8:
-            raise ValueError("Password must be at least 8 characters.")
-        
-        params = {"name": self.user.name, "password": password}
-        json_resp = json.loads(self.session.get(BASE_REST_URL + "register",
-                                                params=params).text)
-
-        if 'error' in json_resp.keys():
-            raise ValueError("User '{}' is already registered".format(self.user.name))
-
-        self._make_call("useSession", [json_resp["session"]])
-        self.session.cookies.update({"session": json_resp["session"]})
-        self.user.login()
-
-    def user_change_password(self, old_pass, new_pass):
-        """Changes the password for the currently logged in user."""
-        if len(new_pass) < 8:
-            raise ValueError("Password must be at least 8 characters.")
-
-        params = {"name": self.user.name, 
-                  "password": new_pass,
-                  "old_password": old_pass
-                  }
-        json_resp = json.loads(self.session.get(BASE_REST_URL + "changePassword",
-                                                params=params).text)
-
-        if 'error' in json_resp.keys():
-            raise ValueError("Wrong password.")
-
-    def user_login(self, password):
-        """Attempts to log in as the current user with given password"""
-        if self.user.logged_in:
-            raise RuntimeError("User already logged in!")
-
-        params = {"name": self.user.name,
-                  "password": password}
-        json_resp = json.loads(self.session.get(BASE_REST_URL + "login",
-                                                params=params).text)
-        if 'error' in json_resp.keys():
-            raise ValueError("Login unsuccessful: {}".
-                             format(json_resp["error"]))
-        self._make_call("useSession", [json_resp["session"]])
-        self.session.cookies.update({"session": json_resp["session"]})
-        self.user.login()
-
-    def get_user_stats(self, name):
-        """Return data about the given user. Returns None if user
-        does not exist."""
-
-        req = self.session.get(BASE_URL + "/user/" + name)
-        if req.status_code != 200 or not name:
-            return None
-
-        return json.loads(self.session.get(BASE_REST_URL + "getUserInfo",
-                                           params={"name": name}).text)
-
-    def user_logout(self):
-        """Logs your user out"""
-        if not self.user.logged_in:
-            raise RuntimeError("User is not logged in")
-        self._make_call("logout", [])
-        self.user.logout()
-
-    def _random_id(self, length):
-        """Generates a random ID of n length"""
-        def char():
-            """Generate single random char"""
-            return random.choice(string.ascii_letters + string.digits)
-        return ''.join(char() for _ in range(length))
+        self.conn.send_message("4" + to_json(obj))
 
     def _generate_upload_key(self):
         """Generates a new upload key"""
-        info = json.loads(self.session.get(BASE_REST_URL + "getUploadKey",
-                                           params={"name": self.user.name,
-                                                   "room": self.name}).text)
+        info = json.loads(self.conn.get(BASE_REST_URL + "getUploadKey",
+                                        params={"name": self.user.name,
+                                                "room": self.name}).text)
         return info['key'], info['server']
 
     def _get_checksums(self):
         """Gets the main checksums"""
-        text = self.session.get(BASE_ROOM_URL + self.name).text
+        text = self.conn.get(BASE_ROOM_URL + self.name).text
         cs2 = re.search(r'checksum2\s*:\s*"(\w+?)"', text).group(1)
-        text = self.session.get(
+        text = self.conn.get(
             "https://static.volafile.io/static/js/main.js?c=" + cs2).text
         cs1 = re.search(r'config\.checksum\s*=\s*"(\w+?)"', text).group(1)
 
@@ -422,7 +394,7 @@ class File:
     method to retrieve the file's URL."""
     # pylint: disable=too-few-public-methods
 
-    def __init__(self, file_id, name, file_type, uploader):
+    def __init__(self, file_id, name, file_type=None, uploader=None):
         self.file_id = file_id
         self.name = name
         self.file_type = file_type
@@ -441,18 +413,79 @@ class File:
 class User:
     """Used by Room. Currently not very useful by itself"""
 
-    def __init__(self, name, session):
+    def __init__(self, name, conn):
         self.name = name
-        self.session = session
+        self.conn = conn
         self.logged_in = False
 
-    def login(self):
-        """Set user object to logged in"""
+    def login(self, password):
+        """Attempts to log in as the current user with given password"""
+        if self.logged_in:
+            raise RuntimeError("User already logged in!")
+
+        params = {"name": self.name,
+                  "password": password}
+        json_resp = json.loads(self.conn.get(BASE_REST_URL + "login",
+                                             params=params).text)
+        if 'error' in json_resp:
+            raise ValueError("Login unsuccessful: {}".
+                             format(json_resp["error"]))
+        self.conn.make_call("useSession", [json_resp["session"]])
+        self.conn.cookies.update({"session": json_resp["session"]})
         self.logged_in = True
 
     def logout(self):
-        """Set user object to logged out"""
+        """Logs your user out"""
+        if not self.logged_in:
+            raise RuntimeError("User is not logged in")
+        self.conn.make_call("logout", [])
         self.logged_in = False
+
+    def change_nick(self, new_nick):
+        """Change the name of your user
+        Note: Must be logged out to change nick"""
+        if self.logged_in:
+            raise RuntimeError("User must be logged out")
+
+        if len(new_nick) > 12 or len(new_nick) < 3:
+            raise ValueError("Username must be between 3 and 12 characters.")
+        if any(c not in string.ascii_letters for c in new_nick):
+            raise ValueError("User names can only contain alphabetical characters.")
+
+        self.conn.make_call("command", [self.name, "nick", new_nick])
+        self.name = new_nick
+
+    def register(self, password):
+        """Registers the current user with the given password."""
+        if len(password) < 8:
+            raise ValueError("Password must be at least 8 characters.")
+
+        params = {"name": self.name, "password": password}
+        json_resp = json.loads(self.conn.get(BASE_REST_URL + "register",
+                                             params=params).text)
+
+        if 'error' in json_resp:
+            raise ValueError("User '{}' is already registered".
+                             format(self.name))
+
+        self.conn.make_call("useSession", [json_resp["session"]])
+        self.conn.cookies.update({"session": json_resp["session"]})
+        self.logged_in = True
+
+    def change_password(self, old_pass, new_pass):
+        """Changes the password for the currently logged in user."""
+        if len(new_pass) < 8:
+            raise ValueError("Password must be at least 8 characters.")
+
+        params = {"name": self.name,
+                  "password": new_pass,
+                  "old_password": old_pass
+                  }
+        json_resp = json.loads(self.conn.get(BASE_REST_URL + "changePassword",
+                                             params=params).text)
+
+        if 'error' in json_resp:
+            raise ValueError("Wrong password.")
 
     def __repr__(self):
         return "<User({}, {})>".format(self.name, self.logged_in)
