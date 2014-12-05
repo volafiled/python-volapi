@@ -47,11 +47,11 @@ class TestVolapi(unittest.TestCase):
             self.assertEqual(self.r.user.name, msg.nick)
             self.assertIn(msg, self.r.get_chat_log())
             self.send_msg = False
-            self.t.join(0)
+            self.t = None
             return False
 
         def send_messages():
-            while self.r.connected:
+            while self.t:
                 try:
                    self.r.post_chat("TEST123")
                 except:
@@ -67,11 +67,11 @@ class TestVolapi(unittest.TestCase):
             self.assertEqual("test.py", f.name)
             self.assertEqual(self.r.user.name, f.uploader)
             self.assertIn(f, self.r.get_files())
-            self.t.join(0)
+            self.t = None
             return False
 
         def upload_files():
-            while self.r.connected:
+            while self.t:
                 try:
                     self.r.upload_file(__file__, upload_as="test.py")
                 except:
@@ -87,11 +87,11 @@ class TestVolapi(unittest.TestCase):
             self.assertIn("newnick", msg.msg)
             self.assertTrue(msg.admin)
             self.assertEqual(self.r.user.name, "newnick")
-            self.t.join(0)
+            self.t = None
             return False
 
         def change_nick():
-            while self.r.connected:
+            while self.t:
                 try:
                    self.r.user_change_nick("newnick")
                 except:
