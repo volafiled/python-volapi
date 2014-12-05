@@ -25,15 +25,13 @@ from volapi import Room
 class TestVolapi(unittest.TestCase):
 
     room_name = None
+    r = None
 
     def setUp(self):
         warnings.simplefilter("ignore", ResourceWarning)
-        self.r = Room(name=self.room_name)
-        self.room_name = self.r.name
-
-    def tearDown(self):
-        if self.r.connected:
-            self.r.close()
+        if not self.r or not self.r.connected:
+            self.r = Room(name=self.room_name)
+            self.room_name = self.r.name
 
     def test_user_count(self):
         def compare_user_count(count):

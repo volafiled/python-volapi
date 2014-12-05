@@ -95,7 +95,9 @@ class Room:
             try:
                 while self.connected:
                     new_data = self.ws.recv()
-                    if new_data[0] == '1':
+                    if not new_data:
+                        pass
+                    elif new_data[0] == '1':
                         self.close()
                         break
                     elif new_data[0] == '4':
@@ -263,6 +265,7 @@ class Room:
     def close(self):
         """Close connection to this room"""
         self.ws.close()
+        self.session.close()
 
     def _subscribe(self, checksum, checksum2):
         o = [-1, [[0, ["subscribe", {"room": self.name,
