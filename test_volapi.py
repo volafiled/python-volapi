@@ -47,6 +47,7 @@ class TestVolapi(unittest.TestCase):
             self.assertEqual(self.r.user.name, msg.nick)
             self.assertIn(msg, self.r.get_chat_log())
             self.send_msg = False
+            self.t.stop()
             return False
 
         def send_messages():
@@ -57,7 +58,8 @@ class TestVolapi(unittest.TestCase):
                     break
                 time.sleep(1)
 
-        Thread(target=send_messages).start()
+        self.t = Thread(target=send_messages)
+        self.t.start()
         self.r.listen(onmessage=compare_chat)
 
     def test_get_files(self):
@@ -65,6 +67,7 @@ class TestVolapi(unittest.TestCase):
             self.assertEqual("test.py", f.name)
             self.assertEqual(self.r.user.name, f.uploader)
             self.assertIn(f, self.r.get_files())
+            self.t.stop()
             return False
 
         def upload_files():
@@ -75,7 +78,8 @@ class TestVolapi(unittest.TestCase):
                     break
                 time.sleep(1)
 
-        Thread(target=upload_files).start()
+        self.t = Thread(target=upload_files)
+        self.t.start()
         self.r.listen(onfile=compare_file)
 
     def test_close(self):
@@ -88,6 +92,7 @@ class TestVolapi(unittest.TestCase):
             self.assertIn("newnick", msg.msg)
             self.assertTrue(msg.admin)
             self.assertEqual(self.r.user.name, "newnick")
+            self.t.stop()
             return False
 
         def change_nick():
@@ -98,7 +103,8 @@ class TestVolapi(unittest.TestCase):
                     break
                 time.sleep(1)
 
-        Thread(target=change_nick).start()
+        self.t = Thread(target=change_nick)
+        self.t.start()
         self.r.listen(onmessage=compare_nick)
 
     def test_user_login(self):

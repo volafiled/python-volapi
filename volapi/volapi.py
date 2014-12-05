@@ -126,7 +126,10 @@ class Room:
 
         def ping():
             while self.connected:
-                self.ws.send('2')
+                try:
+                    self.ws.send('2')
+                except:
+                    break
                 time.sleep(20)
 
         Thread(target=listen, daemon=True).start()
