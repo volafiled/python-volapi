@@ -102,15 +102,9 @@ class TestVolapi(unittest.TestCase):
         self.t.start()
         self.r.listen(onmessage=compare_nick)
 
-    def test_user_login(self):
-        self.assertRaises(ValueError, self.r.user_login, "badpass")
-
     def test_get_user_stats(self):
         self.assertIsNone(self.r.get_user_stats("bad_user"))
         self.assertIsNotNone(self.r.get_user_stats("lain"))
-
-    def test_user_logout(self):
-        self.assertRaises(RuntimeError, self.r.user_logout)
 
 if __name__ == "__main__":
     unittest.main()
