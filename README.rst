@@ -6,7 +6,7 @@ Installation
 ------------
 ::
 
-    pip3 install volapi
+    pip install volapi
 
 Example
 -------

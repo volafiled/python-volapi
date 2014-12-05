@@ -14,15 +14,15 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 '''
-from setuptools import setup
 
+from setuptools import setup
 import re
 
 
 def find_version(filename):
     """
-    Build a path from *file_paths* and search for a ``__version__``
-    string inside.
+    Search for assignment of __version__ string in given file and
+    return what it is assigned to.
     """
     with open(filename, 'r') as filep:
         version_file = filep.read()
