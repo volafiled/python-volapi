@@ -45,7 +45,7 @@ class TestVolapi(unittest.TestCase):
         def compare_chat(msg):
             self.assertEqual("TEST123", msg.msg)
             self.assertEqual(self.r.user.name, msg.nick)
-            self.assertIn(msg, self.r.get_chat_log())
+            self.assertIn(msg, self.r.chat_log)
             self.send_msg = False
             self.t = None
             return False
@@ -66,7 +66,7 @@ class TestVolapi(unittest.TestCase):
         def compare_file(f):
             self.assertEqual("test.py", f.name)
             self.assertEqual(self.r.user.name, f.uploader)
-            self.assertIn(f, self.r.get_files())
+            self.assertIn(f, self.r.files)
             self.t = None
             return False
 
@@ -93,7 +93,7 @@ class TestVolapi(unittest.TestCase):
         def change_nick():
             while self.t:
                 try:
-                   self.r.user_change_nick("newnick")
+                   self.r.user.change_nick("newnick")
                 except:
                     break
                 time.sleep(1)
