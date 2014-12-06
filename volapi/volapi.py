@@ -284,9 +284,45 @@ class Room:
         Note: Must be logged out to change nick"""
         if self.user.logged_in:
             raise RuntimeError("User must be logged out")
+        if len(new_nick) > 12 or len(new_nick) < 3:
+            raise ValueError("Username must be between 3 and 12 characters.")
+        for c in new_nick:
+            if c not in string.ascii_letters:
+                raise ValueError("User names can only contain alphabetical characters.")
 
         self._make_call("command", [self.user.name, "nick", new_nick])
         self.user.name = new_nick
+
+    def user_register(self, password):
+        """Registers the current user with the given password."""
+        if len(password) < 8:
+            raise ValueError("Password must be at least 8 characters.")
+        
+        params = {"name": self.user.name, "password": password}
+        json_resp = json.loads(self.session.get(BASE_REST_URL + "register",
+                                                params=params).text)
+
+        if 'error' in json_resp.keys():
+            raise ValueError("User '{}' is already registered".format(self.user.name))
+
+        self._make_call("useSession", [json_resp["session"]])
+        self.session.cookies.update({"session": json_resp["session"]})
+        self.user.login()
+
+    def user_change_password(self, old_pass, new_pass):
+        """Changes the password for the currently logged in user."""
+        if len(new_pass) < 8:
+            raise ValueError("Password must be at least 8 characters.")
+
+        params = {"name": self.user.name, 
+                  "password": new_pass,
+                  "old_password": old_pass
+                  }
+        json_resp = json.loads(self.session.get(BASE_REST_URL + "changePassword",
+                                                params=params).text)
+
+        if 'error' in json_resp.keys():
+            raise ValueError("Wrong password.")
 
     def user_login(self, password):
         """Attempts to log in as the current user with given password"""
@@ -321,6 +357,7 @@ class Room:
         if not self.user.logged_in:
             raise RuntimeError("User is not logged in")
         self._make_call("logout", [])
+        self.user.logout()
 
     def _random_ID(self, n):
         def r():
