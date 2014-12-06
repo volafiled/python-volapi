@@ -112,7 +112,10 @@ class Room:
         self.name = name
         if not self.name:
             name = self.conn.get(BASE_URL + "/new").url
-            self.name = re.search(r'r/(.+?)$', name).group(1)
+            try:
+                self.name = re.search(r'r/(.+?)$', name).group(1)
+            except Exception as ex:
+                raise IOError("Failed to create room") from ex
         self.user = User(user or random_id(5), self.conn)
         self.condition = Condition()
 
@@ -371,13 +374,16 @@ class Room:
 
     def _get_checksums(self):
         """Gets the main checksums"""
-        text = self.conn.get(BASE_ROOM_URL + self.name).text
-        cs2 = re.search(r'checksum2\s*:\s*"(\w+?)"', text).group(1)
-        text = self.conn.get(
-            "https://static.volafile.io/static/js/main.js?c=" + cs2).text
-        cs1 = re.search(r'config\.checksum\s*=\s*"(\w+?)"', text).group(1)
+        try:
+            text = self.conn.get(BASE_ROOM_URL + self.name).text
+            cs2 = re.search(r'checksum2\s*:\s*"(\w+?)"', text).group(1)
+            text = self.conn.get(
+                "https://static.volafile.io/static/js/main.js?c=" + cs2).text
+            cs1 = re.search(r'config\.checksum\s*=\s*"(\w+?)"', text).group(1)
 
-        return cs1, cs2
+            return cs1, cs2
+        except Exception as ex:
+            raise IOError("Failed to get checksums") from ex
 
 
 class ChatMessage:
