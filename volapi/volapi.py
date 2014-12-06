@@ -213,6 +213,7 @@ class Room:
                     self._files += File(file[0],
                                         file[1],
                                         file[2],
+                                        file[3],
                                         file[6]['user']),
             elif data_type == "chat":
                 nick = data['nick']
@@ -403,11 +404,13 @@ class File:
     """Basically a struct for a file's info on volafile, with an additional
     method to retrieve the file's URL."""
     # pylint: disable=too-few-public-methods
+    # pylint: disable=too-many-arguments
 
-    def __init__(self, file_id, name, file_type=None, uploader=None):
+    def __init__(self, file_id, name, file_type=None, size=None, uploader=None):
         self.file_id = file_id
         self.name = name
         self.file_type = file_type
+        self.size = size
         self.uploader = uploader
 
     @property
@@ -416,8 +419,8 @@ class File:
         return "{}/get/{}/{}".format(BASE_URL, self.file_id, self.name)
 
     def __repr__(self):
-        return "<File({},{},{})>".format(self.file_id, self.uploader,
-                                         self.name)
+        return ("<File({},{},{},{})>".
+                format(self.file_id, self.size, self.uploader, self.name))
 
 
 class User:
