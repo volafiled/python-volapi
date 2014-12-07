@@ -45,11 +45,16 @@ def random_id(length):
         return random.choice(string.ascii_letters + string.digits)
     return ''.join(char() for _ in range(length))
 
-
 def to_json(obj):
     """Create a compact JSON string from an object"""
     return json.dumps(obj, separators=(',', ':'))
 
+def verify_username(username):
+    """Raises an exception if the given username is not valid."""
+    if len(username) > 12 or len(username) < 3:
+        raise ValueError("Username must be between 3 and 12 characters.")
+    if any(c not in string.ascii_letters + string.digits for c in username):
+        raise ValueError("User names can only contain alphabetical characters.")
 
 class Connection(requests.Session):
     """Bundles a requests/websocket pair"""
@@ -433,6 +438,7 @@ class User:
     """Used by Room. Currently not very useful by itself"""
 
     def __init__(self, name, conn):
+        verify_username(name)
         self.name = name
         self.conn = conn
         self.logged_in = False
@@ -465,11 +471,7 @@ class User:
         Note: Must be logged out to change nick"""
         if self.logged_in:
             raise RuntimeError("User must be logged out")
-
-        if len(new_nick) > 12 or len(new_nick) < 3:
-            raise ValueError("Username must be between 3 and 12 characters.")
-        if any(c not in string.ascii_letters for c in new_nick):
-            raise ValueError("User names can only contain alphabetical characters.")
+        verify_username(new_nick)
 
         self.conn.make_call("command", [self.name, "nick", new_nick])
         self.name = new_nick

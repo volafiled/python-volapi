@@ -35,7 +35,7 @@ class TestVolapi(unittest.TestCase):
 
     def test_user_count(self):
         def compare_user_count(count):
-            self.assertEqual(self.r.get_user_count(), count)
+            self.assertEqual(self.r.user_count, count)
             self.assertEqual(1, count)
             return False
 
