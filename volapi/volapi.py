@@ -22,6 +22,7 @@ import random
 import re
 import string
 import time
+from collections import OrderedDict
 
 import requests
 import websocket
@@ -125,7 +126,7 @@ class Room:
         self.condition = Condition()
 
         self._user_count = 0
-        self._files = []
+        self._files = OrderedDict()
         self._chat_log = []
 
         checksum, checksum2 = self._get_checksums()
@@ -177,6 +178,7 @@ class Room:
                         pass  # not implemented
 
                     # send max msg ID seen every 10 seconds
+                    #TODO this is literally retarded
                     if time.time() > last_time + 10:
                         msg = "4" + to_json([self.conn.max_id])
                         self.conn.send_message(msg)
@@ -199,6 +201,7 @@ class Room:
                 # pylint: disable=bare-except
                 except:
                     break
+                #TODO get this from connection message instead of hard coding
                 time.sleep(20)
 
         Thread(target=listen, daemon=True).start()
@@ -218,11 +221,14 @@ class Room:
             elif data_type == "files":
                 files = data['files']
                 for file in files:
-                    self._files += File(file[0],
-                                        file[1],
-                                        file[2],
-                                        file[3],
-                                        file[6]['user']),
+                    self._files[file[0]] = File(file[0],
+                                                file[1],
+                                                file[2],
+                                                file[3],
+                                                file[6]['user'])
+            elif data_type == "delete_file":
+                file_id = item[0][1][1]
+                del self_files[file_id]
             elif data_type == "chat":
                 nick = data['nick']
                 files = []
@@ -276,8 +282,12 @@ class Room:
                         onusercount = None
                 last_user = self._user_count
 
+                # last_file may be greater than the length of _files
+                # if a file is deleted.
+                last_file = min(last_file, len(self._files))
+
                 while onfile and last_file < len(self._files):
-                    if onfile(self._files[last_file]) is False:
+                    if onfile(list(self._files.values())[last_file]) is False:
                         # detach
                         onfile = None
                     last_file += 1
@@ -307,7 +317,7 @@ class Room:
         """Returns list of File objects for this room.
         Note: This will only reflect the files at the time
         this method was called."""
-        return self._files[:]
+        return list(self._files.values())
 
     def get_user_stats(self, name):
         """Return data about the given user. Returns None if user
@@ -357,8 +367,8 @@ class Room:
 
     def clear(self):
         """Clears the cached information, if any"""
-        del self._chat_log[:]
-        del self._files[:]
+        self._chat_log.clear()
+        self._files.clear()
 
     def _subscribe(self, checksum, checksum2):
         """Make subscribe API call"""
