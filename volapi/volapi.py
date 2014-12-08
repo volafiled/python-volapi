@@ -46,9 +46,11 @@ def random_id(length):
         return random.choice(string.ascii_letters + string.digits)
     return ''.join(char() for _ in range(length))
 
+
 def to_json(obj):
     """Create a compact JSON string from an object"""
     return json.dumps(obj, separators=(',', ':'))
+
 
 def verify_username(username):
     """Raises an exception if the given username is not valid."""
@@ -57,8 +59,11 @@ def verify_username(username):
     if any(c not in string.ascii_letters + string.digits for c in username):
         raise ValueError("Usernames can only contain alphanumeric characters.")
 
+
 class Connection(requests.Session):
+
     """Bundles a requests/websocket pair"""
+
     def __init__(self):
         super().__init__()
 
@@ -102,6 +107,7 @@ class Connection(requests.Session):
 
 
 class Room:
+
     """ Use this to interact with a room as a user
     Example:
         with Room("BEEPi", "ptc") as r:
@@ -154,7 +160,7 @@ class Room:
         """Listens for new data about the room from the websocket
         and updates Room state accordingly."""
 
-        self._ping_interval = 20 # default
+        self._ping_interval = 20  # default
         barrier = Barrier(2)
 
         def listen():
@@ -168,13 +174,14 @@ class Room:
                         continue
                     if new_data[0] == '0':
                         json_data = json.loads(new_data[1:])
-                        self._ping_interval = float(json_data['pingInterval']) / 1000
+                        self._ping_interval = float(
+                            json_data['pingInterval']) / 1000
                     if new_data[0] == '1':
                         self.close()
                         break
                     elif new_data[0] == '4':
                         json_data = json.loads(new_data[1:])
-                        if type(json_data) is list and len(json_data) > 1:
+                        if isinstance(json_data, list) and len(json_data) > 1:
                             self.conn.max_id = int(json_data[1][-1])
                             self._add_data(json_data)
                             with self.condition:
@@ -395,6 +402,7 @@ class Room:
 
 
 class ChatMessage:
+
     """Basically a struct for a chat message. self.msg holds the
     text of the message, files is a list of Files that were
     linked in the message, and rooms are a list of room
@@ -415,12 +423,19 @@ class ChatMessage:
 
 
 class File:
+
     """Basically a struct for a file's info on volafile, with an additional
     method to retrieve the file's URL."""
     # pylint: disable=too-few-public-methods
     # pylint: disable=too-many-arguments
 
-    def __init__(self, file_id, name, file_type=None, size=None, uploader=None):
+    def __init__(
+            self,
+            file_id,
+            name,
+            file_type=None,
+            size=None,
+            uploader=None):
         self.file_id = file_id
         self.name = name
         self.file_type = file_type
@@ -438,6 +453,7 @@ class File:
 
 
 class User:
+
     """Used by Room. Currently not very useful by itself"""
 
     def __init__(self, name, conn):
