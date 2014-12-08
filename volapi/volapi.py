@@ -22,7 +22,7 @@ import random
 import re
 import string
 import time
-from queue import Queue
+from collections import deque
 
 import requests
 import websocket
@@ -133,7 +133,7 @@ class Room:
 
         self._user_count = 0
         self._files = {}
-        self._file_queue = Queue()
+        self._file_queue = deque()
         self._chat_log = []
 
         checksum, checksum2 = self._get_checksums()
@@ -225,7 +225,7 @@ class Room:
             elif data_type == "files":
                 files = data['files']
                 for file in files:
-                    self._file_queue.put(file[0])
+                    self._file_queue.appendleft(file[0])
                     self._files[file[0]] = File(file[0],
                                                 file[1],
                                                 file[2],
@@ -275,9 +275,9 @@ class Room:
         last_user, last_msg = 0, 0
         with self.condition:
             while self.connected and (onmessage or onfile or onusercount):
-                while (len(self._chat_log) == last_msg and
-                       self._file_queue.empty() and
-                       self._user_count == last_user and
+                while ((len(self._chat_log) == last_msg or not onmessage) and
+                       (not self._file_queue or not onfile) and
+                       (self._user_count == last_user or not onusercount) and
                        self.connected):
                     self.condition.wait()
 
@@ -287,8 +287,8 @@ class Room:
                         onusercount = None
                 last_user = self._user_count
 
-                while onfile and not self._file_queue.empty():
-                    if onfile(self._files[self._file_queue.get()]) is False:
+                while onfile and self._file_queue:
+                    if onfile(self._files[self._file_queue.pop()]) is False:
                         # detach
                         onfile = None
 
@@ -297,7 +297,6 @@ class Room:
                         # detach
                         onmessage = None
                     last_msg += 1
-                last_msg = len(self._chat_log)
 
     @property
     def chat_log(self):

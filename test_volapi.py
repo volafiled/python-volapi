@@ -17,7 +17,7 @@ along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 
 import unittest
 import time
-from threading import Thread
+from threading import Thread, Barrier
 import warnings
 
 from volapi import Room
@@ -42,24 +42,32 @@ class TestVolapi(unittest.TestCase):
         self.r.listen(onusercount=compare_user_count)
 
     def test_get_chat_log(self):
+        self.y = 1
+        b = Barrier(2)
         def compare_chat(msg):
-            self.assertEqual("TEST123", msg.msg)
+            self.assertEqual("TEST123" + str(self.y), msg.msg)
+            self.y += 1
             self.assertEqual(self.r.user.name, msg.nick)
             self.assertIn(msg, self.r.chat_log)
-            self.send_msg = False
-            self.t = None
-            return False
+            if self.y == 5:
+                self.t = None
+                return False
+            
 
         def send_messages():
+            x = 0
+            b.wait()
             while self.t:
                 try:
-                   self.r.post_chat("TEST123")
+                   self.r.post_chat("TEST123" + str(x))
+                   x += 1
                 except:
                     break
                 time.sleep(1)
 
-        self.t = Thread(target=send_messages)
+        self.t = Thread(target=send_messages, daemon=True)
         self.t.start()
+        b.wait()
         self.r.listen(onmessage=compare_chat)
 
     def test_get_files(self):
