@@ -31,7 +31,7 @@ from threading import Barrier, Condition, Thread
 
 from .multipart import Data
 
-__version__ = "0.7"
+__version__ = "0.7.1"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
