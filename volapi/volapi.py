@@ -22,7 +22,7 @@ import random
 import re
 import string
 import time
-from collections import OrderedDict
+from queue import Queue
 
 import requests
 import websocket
@@ -55,7 +55,7 @@ def verify_username(username):
     if len(username) > 12 or len(username) < 3:
         raise ValueError("Username must be between 3 and 12 characters.")
     if any(c not in string.ascii_letters + string.digits for c in username):
-        raise ValueError("User names can only contain alphabetical characters.")
+        raise ValueError("Usernames can only contain alphanumeric characters.")
 
 class Connection(requests.Session):
     """Bundles a requests/websocket pair"""
@@ -126,7 +126,8 @@ class Room:
         self.condition = Condition()
 
         self._user_count = 0
-        self._files = OrderedDict()
+        self._files = {}
+        self._file_queue = Queue()
         self._chat_log = []
 
         checksum, checksum2 = self._get_checksums()
@@ -153,6 +154,7 @@ class Room:
         """Listens for new data about the room from the websocket
         and updates Room state accordingly."""
 
+        self._ping_interval = 20 # default
         barrier = Barrier(2)
 
         def listen():
@@ -164,6 +166,9 @@ class Room:
                     new_data = self.conn.recv_message()
                     if not new_data:
                         continue
+                    if new_data[0] == '0':
+                        json_data = json.loads(new_data[1:])
+                        self._ping_interval = float(json_data['pingInterval']) / 1000
                     if new_data[0] == '1':
                         self.close()
                         break
@@ -174,15 +179,7 @@ class Room:
                             self._add_data(json_data)
                             with self.condition:
                                 self.condition.notify_all()
-                    else:
-                        pass  # not implemented
 
-                    # send max msg ID seen every 10 seconds
-                    #TODO this is literally retarded
-                    if time.time() > last_time + 10:
-                        msg = "4" + to_json([self.conn.max_id])
-                        self.conn.send_message(msg)
-                        last_time = time.time()
             finally:
                 try:
                     self.close()
@@ -198,11 +195,12 @@ class Room:
             while self.connected:
                 try:
                     self.conn.send_message('2')
+                    msg = "4" + to_json([self.conn.max_id])
+                    self.conn.send_message(msg)
                 # pylint: disable=bare-except
                 except:
                     break
-                #TODO get this from connection message instead of hard coding
-                time.sleep(20)
+                time.sleep(self._ping_interval)
 
         Thread(target=listen, daemon=True).start()
         Thread(target=ping, daemon=True).start()
@@ -221,6 +219,7 @@ class Room:
             elif data_type == "files":
                 files = data['files']
                 for file in files:
+                    self._file_queue.put(file[0])
                     self._files[file[0]] = File(file[0],
                                                 file[1],
                                                 file[2],
@@ -228,7 +227,7 @@ class Room:
                                                 file[6]['user'])
             elif data_type == "delete_file":
                 file_id = item[0][1][1]
-                del self_files[file_id]
+                del self._files[file_id]
             elif data_type == "chat":
                 nick = data['nick']
                 files = []
@@ -267,11 +266,11 @@ class Room:
         if not onmessage and not onfile and not onusercount:
             raise ValueError("At least one of onmessage, onfile, onusercount "
                              "must be specified")
-        last_user, last_msg, last_file = 0, 0, 0
+        last_user, last_msg = 0, 0
         with self.condition:
             while self.connected and (onmessage or onfile or onusercount):
                 while (len(self._chat_log) == last_msg and
-                       len(self._files) == last_file and
+                       self._file_queue.empty() and
                        self._user_count == last_user and
                        self.connected):
                     self.condition.wait()
@@ -282,16 +281,10 @@ class Room:
                         onusercount = None
                 last_user = self._user_count
 
-                # last_file may be greater than the length of _files
-                # if a file is deleted.
-                last_file = min(last_file, len(self._files))
-
-                while onfile and last_file < len(self._files):
-                    if onfile(list(self._files.values())[last_file]) is False:
+                while onfile and not self._file_queue.empty():
+                    if onfile(self._files[self._file_queue.get()]) is False:
                         # detach
                         onfile = None
-                    last_file += 1
-                last_file = len(self._files)
 
                 while onmessage and last_msg < len(self._chat_log):
                     if onmessage(self._chat_log[last_msg]) is False:
