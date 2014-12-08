@@ -139,6 +139,7 @@ class Room:
         checksum, checksum2 = self._get_checksums()
         self._subscribe(checksum, checksum2)
 
+        self._ping_interval = 20  # default
         self._listen_forever()
 
     def __repr__(self):
@@ -160,13 +161,11 @@ class Room:
         """Listens for new data about the room from the websocket
         and updates Room state accordingly."""
 
-        self._ping_interval = 20  # default
         barrier = Barrier(2)
 
         def listen():
             """Thread: Listen to incoming data"""
             barrier.wait()
-            last_time = time.time()
             try:
                 while self.connected:
                     new_data = self.conn.recv_message()
