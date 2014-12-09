@@ -31,7 +31,7 @@ from threading import Barrier, Condition, Thread
 
 from .multipart import Data
 
-__version__ = "0.7.2"
+__version__ = "0.8"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -106,60 +106,90 @@ class Connection(requests.Session):
         super().close()
 
 
-class Room:
+class RoomConnection(Connection):
 
-    """ Use this to interact with a room as a user
-    Example:
-        with Room("BEEPi", "ptc") as r:
-            r.post_chat("Hello, world!")
-            r.upload_file("onii-chan.ogg")
-    """
+    """Handles networking for a room."""
 
-    def __init__(self, name=None, user=None):
-        """name is the room name, if none then makes a new room
-        user is your user name, if none then generates one for you"""
+    def __init__(self):
+        super().__init__()
 
-        self.conn = Connection()
-
-        self.name = name
-        if not self.name:
-            name = self.conn.get(BASE_URL + "/new").url
-            try:
-                self.name = re.search(r'r/(.+?)$', name).group(1)
-            except Exception as ex:
-                raise IOError("Failed to create room") from ex
-        self.user = User(user or random_id(5), self.conn)
         self.condition = Condition()
 
-        self._user_count = 0
-        self._files = {}
         self._file_queue = deque()
-        self._chat_log = []
-
-        checksum, checksum2 = self._get_checksums()
-        self._subscribe(checksum, checksum2)
+        self._message_queue = deque()
 
         self._ping_interval = 20  # default
-        self._listen_forever()
 
-    def __repr__(self):
-        return ("<Room({},{},connected={})>".
-                format(self.name, self.user.name, self.connected))
+    def subscribe(self, room_name, username):
+        """Make subscribe API call"""
+        checksum, checksum2 = self._get_checksums(room_name)
+        obj = [-1, [[0, ["subscribe", {"room": room_name,
+                                       "checksum": checksum,
+                                       "checksum2": checksum2,
+                                       "nick": username
+                                       }]],
+                    0]]
+        self.send_message("4" + to_json(obj))
 
-    def __enter__(self):
-        return self
+    def _get_checksums(self, room_name):
+        """Gets the main checksums"""
+        try:
+            text = self.get(BASE_ROOM_URL + room_name).text
+            cs2 = re.search(r'checksum2\s*:\s*"(\w+?)"', text).group(1)
+            text = self.get(
+                "https://static.volafile.io/static/js/main.js?c=" + cs2).text
+            cs1 = re.search(r'config\.checksum\s*=\s*"(\w+?)"', text).group(1)
 
-    def __exit__(self, extype, value, traceback):
-        self.close()
+            return cs1, cs2
+        except Exception as ex:
+            raise IOError("Failed to get checksums") from ex
 
-    @property
-    def connected(self):
-        """Room is connected"""
-        return self.conn.connected
+    def enqueue_file(self, file_id):
+        """Enqueues a file id so listeners can see the file."""
+        self._file_queue.appendleft(file_id)
 
-    def _listen_forever(self):
+    def enqueue_message(self, msg):
+        """Enqueues a ChatMessage so listeners can see it."""
+        self._message_queue.appendleft(msg)
+
+    def listen(self, room, onmessage=None, onfile=None, onusercount=None):
+        """Listen for incoming events for the given room.
+        You need to at least provide one of the possible listener functions.
+        You can detach a listener by returning False (exactly, not just a
+        false-y value).
+        The function will not return unless all listeners are detached again or
+        the WebSocket connection is closed.
+        """
+        if not onmessage and not onfile and not onusercount:
+            raise ValueError("At least one of onmessage, onfile, onusercount "
+                             "must be specified")
+        last_user = 0
+        with self.condition:
+            while self.connected and (onmessage or onfile or onusercount):
+                while ((not self._message_queue or not onmessage) and
+                       (not self._file_queue or not onfile) and
+                       (room.user_count == last_user or not onusercount) and
+                       self.connected):
+                    self.condition.wait()
+
+                if onusercount and room.user != last_user:
+                    if onusercount(room.user_count) is False:
+                        # detach
+                        onusercount = None
+
+                while onfile and self._file_queue:
+                    if onfile(room.get_file(self._file_queue.pop())) is False:
+                        # detach
+                        onfile = None
+
+                while onmessage and self._message_queue:
+                    if onmessage(self._message_queue.pop()) is False:
+                        # detach
+                        onmessage = None
+
+    def listen_forever(self, room):
         """Listens for new data about the room from the websocket
-        and updates Room state accordingly."""
+        and updates given room state accordingly."""
 
         barrier = Barrier(2)
 
@@ -168,7 +198,7 @@ class Room:
             barrier.wait()
             try:
                 while self.connected:
-                    new_data = self.conn.recv_message()
+                    new_data = self.recv_message()
                     if not new_data:
                         continue
                     if new_data[0] == '0':
@@ -181,8 +211,8 @@ class Room:
                     elif new_data[0] == '4':
                         json_data = json.loads(new_data[1:])
                         if isinstance(json_data, list) and len(json_data) > 1:
-                            self.conn.max_id = int(json_data[1][-1])
-                            self._add_data(json_data)
+                            self.max_id = int(json_data[1][-1])
+                            room.add_data(json_data)
                             with self.condition:
                                 self.condition.notify_all()
 
@@ -200,9 +230,9 @@ class Room:
             """Thread: ping the server in intervals"""
             while self.connected:
                 try:
-                    self.conn.send_message('2')
-                    msg = "4" + to_json([self.conn.max_id])
-                    self.conn.send_message(msg)
+                    self.send_message('2')
+                    msg = "4" + to_json([self.max_id])
+                    self.send_message(msg)
                 # pylint: disable=bare-except
                 except:
                     break
@@ -212,8 +242,73 @@ class Room:
         Thread(target=ping, daemon=True).start()
         barrier.wait()
 
-    def _add_data(self, data):
-        """Add data to own state"""
+
+class Room:
+
+    """ Use this to interact with a room as a user
+    Example:
+        with Room("BEEPi", "ptc") as r:
+            r.post_chat("Hello, world!")
+            r.upload_file("onii-chan.ogg")
+    """
+
+    def __init__(self, name=None, user=None):
+        """name is the room name, if none then makes a new room
+        user is your user name, if none then generates one for you"""
+
+        self.conn = RoomConnection()
+
+        self.name = name
+        if not self.name:
+            name = self.conn.get(BASE_URL + "/new").url
+            try:
+                self.name = re.search(r'r/(.+?)$', name).group(1)
+            except Exception as ex:
+                raise IOError("Failed to create room") from ex
+
+        self.user = User(user or random_id(5), self.conn)
+
+        self.conn.subscribe(self.name, self.user.name)
+
+        self._user_count = 0
+        self._files = {}
+        self._chat_log = []
+
+        self.conn.listen_forever(self)
+
+    def __repr__(self):
+        return ("<Room({},{},connected={})>".
+                format(self.name, self.user.name, self.connected))
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, extype, value, traceback):
+        self.close()
+
+    @property
+    def connected(self):
+        """Room is connected"""
+        return self.conn.connected
+
+    def get_file(self, file_id):
+        """Get the File object for the given file_id."""
+        if file_id not in self._files:
+            raise ValueError("No file with id {}".format(file_id))
+        return self._files[file_id]
+
+    def listen(self, onmessage=None, onfile=None, onusercount=None):
+        """Listen for incoming events.
+        You need to at least provide one of the possible listener functions.
+        You can detach a listener by returning False (exactly, not just a
+        false-y value).
+        The function will not return unless all listeners are detached again or
+        the WebSocket connection is closed.
+        """
+        self.conn.listen(self, onmessage, onfile, onusercount)
+
+    def add_data(self, data):
+        """Add data to given room's state"""
         for item in data[1:]:
             data_type = item[0][1][0]
             try:
@@ -225,15 +320,14 @@ class Room:
             elif data_type == "files":
                 files = data['files']
                 for file in files:
-                    self._file_queue.appendleft(file[0])
+                    self.conn.enqueue_file(file[0])
                     self._files[file[0]] = File(file[0],
                                                 file[1],
                                                 file[2],
                                                 file[3],
                                                 file[6]['user'])
             elif data_type == "delete_file":
-                file_id = item[0][1][1]
-                del self._files[file_id]
+                del self._files[item[0][1][1]]
             elif data_type == "chat":
                 nick = data['nick']
                 files = []
@@ -256,47 +350,12 @@ class Room:
                 user = 'user' in options or admin
                 donator = 'donator' in options
 
-                self._chat_log += ChatMessage(nick, msg, files, rooms,
-                                              logged_in=user,
-                                              donator=donator,
-                                              admin=admin),
-
-    def listen(self, onmessage=None, onfile=None, onusercount=None):
-        """Listen for incoming events.
-        You need to at least provide one of the possible listener functions.
-        You can detach a listener by returning False (exactly, not just a
-        false-y value).
-        The function will not return unless all listeners are detached again or
-        the WebSocket connection is closed.
-        """
-        if not onmessage and not onfile and not onusercount:
-            raise ValueError("At least one of onmessage, onfile, onusercount "
-                             "must be specified")
-        last_user, last_msg = 0, 0
-        with self.condition:
-            while self.connected and (onmessage or onfile or onusercount):
-                while ((len(self._chat_log) == last_msg or not onmessage) and
-                       (not self._file_queue or not onfile) and
-                       (self._user_count == last_user or not onusercount) and
-                       self.connected):
-                    self.condition.wait()
-
-                if onusercount and self._user_count != last_user:
-                    if onusercount(self._user_count) is False:
-                        # detach
-                        onusercount = None
-                last_user = self._user_count
-
-                while onfile and self._file_queue:
-                    if onfile(self._files[self._file_queue.pop()]) is False:
-                        # detach
-                        onfile = None
-
-                while onmessage and last_msg < len(self._chat_log):
-                    if onmessage(self._chat_log[last_msg]) is False:
-                        # detach
-                        onmessage = None
-                    last_msg += 1
+                chat_message = ChatMessage(nick, msg, files, rooms,
+                                           logged_in=user,
+                                           donator=donator,
+                                           admin=admin)
+                self.conn.enqueue_message(chat_message)
+                self._chat_log.append(chat_message)
 
     @property
     def chat_log(self):
@@ -368,35 +427,12 @@ class Room:
         self._chat_log.clear()
         self._files.clear()
 
-    def _subscribe(self, checksum, checksum2):
-        """Make subscribe API call"""
-        obj = [-1, [[0, ["subscribe", {"room": self.name,
-                                       "checksum": checksum,
-                                       "checksum2": checksum2,
-                                       "nick": self.user.name
-                                       }]],
-                    0]]
-        self.conn.send_message("4" + to_json(obj))
-
     def _generate_upload_key(self):
         """Generates a new upload key"""
         info = json.loads(self.conn.get(BASE_REST_URL + "getUploadKey",
                                         params={"name": self.user.name,
                                                 "room": self.name}).text)
         return info['key'], info['server']
-
-    def _get_checksums(self):
-        """Gets the main checksums"""
-        try:
-            text = self.conn.get(BASE_ROOM_URL + self.name).text
-            cs2 = re.search(r'checksum2\s*:\s*"(\w+?)"', text).group(1)
-            text = self.conn.get(
-                "https://static.volafile.io/static/js/main.js?c=" + cs2).text
-            cs1 = re.search(r'config\.checksum\s*=\s*"(\w+?)"', text).group(1)
-
-            return cs1, cs2
-        except Exception as ex:
-            raise IOError("Failed to get checksums") from ex
 
 
 class ChatMessage:
