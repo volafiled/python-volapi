@@ -6,11 +6,11 @@ Installation
 ------------
 ::
 
-    pip install volapi
+    pip3 install volapi
 
 Example
 -------
-::
+.. code-block:: python
 
     from volapi import Room
     with Room("BEEPi", "ptc") as beepi:
