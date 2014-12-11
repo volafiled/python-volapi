@@ -389,6 +389,7 @@ class Room:
 
     def post_chat(self, msg, me=False):
         """Posts a msg to this room's chat. Set me=True if you want to /me"""
+        # pylint: disable=invalid-name
         if not me:
             self.conn.make_call("chat", [self.user.name, msg])
         else:
@@ -424,6 +425,24 @@ class Room:
         """Close connection to this room"""
         if self.connected:
             self.conn.close()
+
+    def set_room_name(self, new_name):
+        """Sets the room name"""
+        if len(new_name) > 24 or len(new_name) < 1:
+            raise ValueError(
+                "Room name must be at most 24 characters and at least 1.")
+        self.conn.make_call("editInfo", [{"name": new_name}])
+
+    def set_room_private(self, private):
+        """Sets the room to private if given True, else sets to public"""
+        private = "true" if private else "false"
+        self.conn.make_call("editInfo", [{"private": private}])
+
+    def set_motd(self, motd):
+        """Sets the room's MOTD"""
+        if len(motd) > 1000:
+            raise ValueError("Room's MOTD must be at most 1000 characters")
+        self.conn.make_call("editInfo", [{"motd": motd}])
 
     def clear(self):
         """Clears the cached information, if any"""
