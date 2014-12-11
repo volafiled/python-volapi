@@ -387,9 +387,12 @@ class Room:
         return json.loads(self.conn.get(BASE_REST_URL + "getUserInfo",
                                         params={"name": name}).text)
 
-    def post_chat(self, msg):
-        """Posts a msg to this room's chat"""
-        self.conn.make_call("chat", [self.user.name, msg])
+    def post_chat(self, msg, me=False):
+        """Posts a msg to this room's chat. Set me=True if you want to /me"""
+        if not me:
+            self.conn.make_call("chat", [self.user.name, msg])
+        else:
+            self.conn.make_call("command", [self.name, "me", msg])
 
     def upload_file(self, filename, upload_as=None, blocksize=None,
                     callback=None):
