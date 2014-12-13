@@ -31,7 +31,7 @@ from threading import Barrier, Condition, Thread
 
 from .multipart import Data
 
-__version__ = "0.8"
+__version__ = "0.8.5"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -58,6 +58,39 @@ def verify_username(username):
         raise ValueError("Username must be between 3 and 12 characters.")
     if any(c not in string.ascii_letters + string.digits for c in username):
         raise ValueError("Usernames can only contain alphanumeric characters.")
+
+
+def parse_chat_message(data):
+    """Parses the data for a json chat message and returns a
+    ChatMessage object"""
+    nick = data['nick']
+    files = []
+    rooms = []
+    msg = ""
+    for part in data["message"]:
+        if part['type'] == 'text':
+            msg += part['value']
+        elif part['type'] == 'break':
+            msg += "\n"
+        elif part['type'] == 'file':
+            files += File(part['id'], part['name']),
+            msg += "@" + part['id']
+        elif part['type'] == 'room':
+            rooms += part["id"],
+            msg += "#" + part['id']
+        elif part['type'] == 'url':
+            msg += part['text']
+
+    options = data['options']
+    admin = 'admin' in options
+    user = 'user' in options or admin
+    donator = 'donator' in options
+
+    chat_message = ChatMessage(nick, msg, files, rooms,
+                               logged_in=user,
+                               donator=donator,
+                               admin=admin)
+    return chat_message
 
 
 class Connection(requests.Session):
@@ -329,33 +362,7 @@ class Room:
             elif data_type == "delete_file":
                 del self._files[item[0][1][1]]
             elif data_type == "chat":
-                nick = data['nick']
-                files = []
-                rooms = []
-                msg = ""
-                for part in data["message"]:
-                    if part['type'] == 'text':
-                        msg += part['value']
-                    elif part['type'] == 'break':
-                        msg += "\n"
-                    elif part['type'] == 'file':
-                        files += File(part['id'], part['name']),
-                        msg += "@" + part['id']
-                    elif part['type'] == 'room':
-                        rooms += part["id"],
-                        msg += "#" + part['id']
-                    elif part['type'] == 'url':
-                        msg += part['text']
-
-                options = data['options']
-                admin = 'admin' in options
-                user = 'user' in options or admin
-                donator = 'donator' in options
-
-                chat_message = ChatMessage(nick, msg, files, rooms,
-                                           logged_in=user,
-                                           donator=donator,
-                                           admin=admin)
+                chat_message = parse_chat_message(data)
                 self.conn.enqueue_message(chat_message)
                 self._chat_log.append(chat_message)
 
