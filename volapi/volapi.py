@@ -336,6 +336,8 @@ class Room:
                 for part in data["message"]:
                     if part['type'] == 'text':
                         msg += part['value']
+                    elif part['type'] == 'break':
+                        msg += "\n"
                     elif part['type'] == 'file':
                         files += File(part['id'], part['name']),
                         msg += "@" + part['id']
