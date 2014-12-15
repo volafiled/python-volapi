@@ -496,6 +496,10 @@ class Room:
 
     def _generate_upload_key(self):
         """Generates a new upload key"""
+        # Wait for server to set username if not set already.
+        while not self.user.name:
+            with self.conn.condition:
+                self.conn.condition.wait()
         info = json.loads(self.conn.get(BASE_REST_URL + "getUploadKey",
                                         params={"name": self.user.name,
                                                 "room": self.name}).text)
@@ -559,19 +563,12 @@ class User:
 
     def __init__(self, name, conn):
         if name is None:
-            name = ""
+            self.name = ""
         else:
             verify_username(name)
-        self._name = name
+        self.name = name
         self.conn = conn
         self.logged_in = False
-
-    @property
-    def name(self):
-        """Get name of user."""
-        # Give some sort of default name if server or volapi user
-        # hasn't set on yet
-        return self._name or "volapi"
 
     def login(self, password):
         """Attempts to log in as the current user with given password"""
@@ -604,7 +601,7 @@ class User:
         verify_username(new_nick)
 
         self.conn.make_call("command", [self.name, "nick", new_nick])
-        self._name = new_nick
+        self.name = new_nick
 
     def register(self, password):
         """Registers the current user with the given password."""
