@@ -299,6 +299,12 @@ class Room:
             except Exception as ex:
                 raise IOError("Failed to create room") from ex
 
+        try:
+            text = self.get(BASE_ROOM_URL + room_name).text
+            self.title = re.search(r'name\s*:\s*"(\w+?)"', text).group(1)
+        except Exception as ex:
+            raise IOError("Failed to get room title") from ex
+
         self.user = User(user or random_id(5), self.conn)
 
         self.conn.subscribe(self.name, self.user.name)
@@ -365,6 +371,10 @@ class Room:
                 chat_message = parse_chat_message(data)
                 self.conn.enqueue_message(chat_message)
                 self._chat_log.append(chat_message)
+            elif data_type == "changed_config":
+                change = item[0][1][1]
+                if change['key'] == 'name':
+                    self.title = change['value']
 
     @property
     def chat_log(self):
@@ -434,8 +444,13 @@ class Room:
         """Close connection to this room"""
         if self.connected:
             self.conn.close()
+    
+    @property
+    def room_title(self):
+        """Gets the title name of the room (e.g. /g/entoomen)"""
+        return self.title
 
-    def set_room_name(self, new_name):
+    def set_room_title(self, new_name):
         """Sets the room name"""
         if len(new_name) > 24 or len(new_name) < 1:
             raise ValueError(
