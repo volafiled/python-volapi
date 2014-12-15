@@ -111,7 +111,7 @@ class Connection(requests.Session):
             ws_url, header=["User-Agent: {}".format(agent)])
 
         self.max_id = 0
-        self._send_count = 0
+        self._send_count = 1
 
     @property
     def connected(self):
