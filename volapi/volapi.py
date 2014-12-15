@@ -82,7 +82,10 @@ def parse_chat_message(data):
         elif part['type'] == 'url':
             msg += part['text']
         else:
-            warnings.warn("unknown message type '{}'".format(part['type']), Warning)
+            warnings.warn(
+                "unknown message type '{}'".format(
+                    part['type']),
+                Warning)
 
     options = data['options']
     admin = 'admin' in options
@@ -352,6 +355,7 @@ class Room:
 
     def add_data(self, data):
         """Add data to given room's state"""
+        # pylint: disable=too-many-branches
         for item in data[1:]:
             data_type = item[0][1][0]
             try:
@@ -370,23 +374,25 @@ class Room:
                                                 file[3],
                                                 file[6]['user'])
             elif data_type == "delete_file":
-                del self._files[item[0][1][1]]
+                del self._files[data]
             elif data_type == "chat":
                 chat_message = parse_chat_message(data)
                 self.conn.enqueue_message(chat_message)
                 self._chat_log.append(chat_message)
             elif data_type == "changed_config":
-                change = item[0][1][1]
+                change = data
                 if change['key'] == 'name':
                     self.title = change['value']
             elif data_type == "chat_name":
-                self.user.name = item[0][1][1]
+                self.user.name = data
             elif data_type == "time":
-                pass # yup, that's the time. Thanks Laino
+                pass  # yup, that's the time. Thanks Laino
             elif data_type == "subscribed":
-                pass # fuck you Lain
+                pass  # fuck you Lain
             else:
-                warnings.warn("unknown data type '{}'".format(data_type), Warning)
+                warnings.warn(
+                    "unknown data type '{}'".format(data_type),
+                    Warning)
 
     @property
     def chat_log(self):
@@ -431,7 +437,8 @@ class Room:
         """
         Uploads a file with given filename to this room.
         You may specify upload_as to change the name it is uploaded as.
-        You can also specify a blocksize and a callback if you wish."""
+        You can also specify a blocksize and a callback if you wish.
+        Returns the file's id on success and None on failure."""
         file = filename if hasattr(filename, "read") else open(filename, 'rb')
         filename = upload_as or os.path.split(filename)[1]
 
@@ -442,15 +449,19 @@ class Room:
         headers = {'Origin': 'https://volafile.io'}
         headers.update(files.headers)
 
-        key, server = self._generate_upload_key()
+        key, server, file_id = self._generate_upload_key()
         params = {'room': self.name,
                   'key': key,
                   'filename': filename}
 
-        return self.conn.post("https://{}/upload".format(server),
+        post = self.conn.post("https://{}/upload".format(server),
                               params=params,
                               data=files,
                               headers=headers)
+        if post.status_code == 200:
+            return file_id
+        else:
+            return None
 
     def close(self):
         """Close connection to this room"""
@@ -490,7 +501,7 @@ class Room:
         info = json.loads(self.conn.get(BASE_REST_URL + "getUploadKey",
                                         params={"name": self.user.name,
                                                 "room": self.name}).text)
-        return info['key'], info['server']
+        return info['key'], info['server'], info['file_id']
 
 
 class ChatMessage:
