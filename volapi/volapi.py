@@ -301,8 +301,8 @@ class Room:
                 raise IOError("Failed to create room") from ex
 
         try:
-            text = self.get(BASE_ROOM_URL + room_name).text
-            self.title = re.search(r'name\s*:\s*"(\w+?)"', text).group(1)
+            text = self.conn.get(BASE_ROOM_URL + self.name).text
+            self.title = re.search(r'name\s*:\s*"(.+?)"', text).group(1)
         except Exception as ex:
             raise IOError("Failed to get room title") from ex
 
