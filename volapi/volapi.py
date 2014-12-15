@@ -258,12 +258,10 @@ class RoomConnection(Connection):
             finally:
                 try:
                     self.close()
-                # pylint: disable=bare-except
-                except:
-                    pass
-                # Notify that the listener is down now
-                with self.condition:
-                    self.condition.notify_all()
+                finally:
+                    # Notify that the listener is down now
+                    with self.condition:
+                        self.condition.notify_all()
 
         def ping():
             """Thread: ping the server in intervals"""
@@ -384,7 +382,7 @@ class Room:
                 if change['key'] == 'name':
                     self.title = change['value']
             elif data_type == "chat_name":
-                self.user.name = data
+                self.user.change_nick(data)
             elif data_type == "time":
                 pass  # yup, that's the time. Thanks Laino
             elif data_type == "subscribed":
@@ -560,13 +558,20 @@ class User:
     """Used by Room. Currently not very useful by itself"""
 
     def __init__(self, name, conn):
-        if name == None:
+        if name is None:
             name = ""
         else:
             verify_username(name)
-        self.name = name
+        self._name = name
         self.conn = conn
         self.logged_in = False
+
+    @property
+    def name(self):
+        """Get name of user."""
+        # Give some sort of default name if server or volapi user
+        # hasn't set on yet
+        return self._name or "volapi"
 
     def login(self, password):
         """Attempts to log in as the current user with given password"""
@@ -599,7 +604,7 @@ class User:
         verify_username(new_nick)
 
         self.conn.make_call("command", [self.name, "nick", new_nick])
-        self.name = new_nick
+        self._name = new_nick
 
     def register(self, password):
         """Registers the current user with the given password."""

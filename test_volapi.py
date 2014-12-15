@@ -43,31 +43,23 @@ class TestVolapi(unittest.TestCase):
 
     def test_get_chat_log(self):
         self.y = 1
-        b = Barrier(2)
         def compare_chat(msg):
-            self.assertEqual("TEST123" + str(self.y), msg.msg)
-            self.y += 1
-            self.assertEqual(self.r.user.name, msg.nick)
-            self.assertIn(msg, self.r.chat_log)
-            if self.y == 5:
-                self.t = None
-                return False
+            if not msg.admin:
+                self.assertEqual("TEST123" + str(self.y), msg.msg)
+                self.y += 1
+                self.assertEqual(self.r.user.name, msg.nick)
+                self.assertIn(msg, self.r.chat_log)
+                if self.y == 5:
+                    self.t = None
+                    return False
             
 
-        def send_messages():
-            x = 0
-            b.wait()
-            while self.t:
-                try:
-                   self.r.post_chat("TEST123" + str(x))
-                   x += 1
-                except:
-                    break
-                time.sleep(1)
+        x = 0
+        while x <= 5:
+            self.r.post_chat("TEST123" + str(x))
+            x += 1
+            time.sleep(1)
 
-        self.t = Thread(target=send_messages, daemon=True)
-        self.t.start()
-        b.wait()
         self.r.listen(onmessage=compare_chat)
 
     def test_get_files(self):
@@ -78,25 +70,17 @@ class TestVolapi(unittest.TestCase):
             self.t = None
             return False
 
-        def upload_files():
-            while self.t:
-                try:
-                    self.r.upload_file(__file__, upload_as="test.py")
-                except:
-                    break
-                time.sleep(1)
-
-        self.t = Thread(target=upload_files)
-        self.t.start()
+        self.r.upload_file(__file__, upload_as="test.py")
         self.r.listen(onfile=compare_file)
 
     def test_user_change_nick(self):
         def compare_nick(msg):
-            self.assertIn("newnick", msg.msg)
-            self.assertTrue(msg.admin)
-            self.assertEqual(self.r.user.name, "newnick")
-            self.t = None
-            return False
+            if "newnick" in msg.msg:
+                self.assertIn("newnick", msg.msg)
+                self.assertTrue(msg.admin)
+                self.assertEqual(self.r.user.name, "newnick")
+                self.t = None
+                return False
 
         def change_nick():
             while self.t:
