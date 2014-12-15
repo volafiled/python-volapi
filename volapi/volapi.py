@@ -312,7 +312,7 @@ class Room:
         except Exception as ex:
             raise IOError("Failed to get room title") from ex
 
-        self.user = User(user or random_id(5), self.conn)
+        self.user = User(user, self.conn)
 
         self.conn.subscribe(self.name, self.user.name)
 
@@ -560,7 +560,10 @@ class User:
     """Used by Room. Currently not very useful by itself"""
 
     def __init__(self, name, conn):
-        verify_username(name)
+        if name == None:
+            name = ""
+        else:
+            verify_username(name)
         self.name = name
         self.conn = conn
         self.logged_in = False
