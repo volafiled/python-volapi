@@ -224,7 +224,7 @@ class RoomConnection(Connection):
         """Listens for new data about the room from the websocket
         and updates given room state accordingly."""
 
-        barrier = Barrier(2)
+        barrier = Barrier(3)
 
         def listen():
             """Thread: Listen to incoming data"""
@@ -261,6 +261,7 @@ class RoomConnection(Connection):
 
         def ping():
             """Thread: ping the server in intervals"""
+            barrier.wait()
             while self.connected:
                 try:
                     self.send_message('2')
