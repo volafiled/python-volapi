@@ -17,10 +17,11 @@ along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 
 import unittest
 import time
-from threading import Thread, Barrier
+from threading import Thread
 import warnings
 
 from volapi import Room
+
 
 class TestVolapi(unittest.TestCase):
 
@@ -43,6 +44,7 @@ class TestVolapi(unittest.TestCase):
 
     def test_get_chat_log(self):
         self.y = 1
+
         def compare_chat(msg):
             if not msg.admin:
                 self.assertEqual("TEST123" + str(self.y), msg.msg)
@@ -52,7 +54,6 @@ class TestVolapi(unittest.TestCase):
                 if self.y == 5:
                     self.t = None
                     return False
-            
 
         x = 0
         while x <= 5:
@@ -85,7 +86,7 @@ class TestVolapi(unittest.TestCase):
         def change_nick():
             while self.t:
                 try:
-                   self.r.user.change_nick("newnick")
+                    self.r.user.change_nick("newnick")
                 except:
                     break
                 time.sleep(1)
