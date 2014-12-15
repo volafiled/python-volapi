@@ -22,7 +22,7 @@ import random
 import re
 import string
 import time
-from collections import deque
+from collections import deque, OrderedDict
 
 import requests
 import websocket
@@ -111,7 +111,7 @@ class Connection(requests.Session):
             ws_url, header=["User-Agent: {}".format(agent)])
 
         self.max_id = 0
-        self._send_count = 0
+        self._send_count = 1
 
     @property
     def connected(self):
@@ -224,7 +224,7 @@ class RoomConnection(Connection):
         """Listens for new data about the room from the websocket
         and updates given room state accordingly."""
 
-        barrier = Barrier(2)
+        barrier = Barrier(3)
 
         def listen():
             """Thread: Listen to incoming data"""
@@ -261,6 +261,7 @@ class RoomConnection(Connection):
 
         def ping():
             """Thread: ping the server in intervals"""
+            barrier.wait()
             while self.connected:
                 try:
                     self.send_message('2')
@@ -300,8 +301,8 @@ class Room:
                 raise IOError("Failed to create room") from ex
 
         try:
-            text = self.get(BASE_ROOM_URL + room_name).text
-            self.title = re.search(r'name\s*:\s*"(\w+?)"', text).group(1)
+            text = self.conn.get(BASE_ROOM_URL + self.name).text
+            self.title = re.search(r'name\s*:\s*"(.+?)"', text).group(1)
         except Exception as ex:
             raise IOError("Failed to get room title") from ex
 
@@ -310,7 +311,7 @@ class Room:
         self.conn.subscribe(self.name, self.user.name)
 
         self._user_count = 0
-        self._files = {}
+        self._files = OrderedDict()
         self._chat_log = []
 
         self.conn.listen_forever(self)
