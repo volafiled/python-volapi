@@ -31,7 +31,7 @@ from threading import Barrier, Condition, Thread
 
 from .multipart import Data
 
-__version__ = "0.8.5"
+__version__ = "0.8.9"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -445,7 +445,7 @@ class Room:
         """Close connection to this room"""
         if self.connected:
             self.conn.close()
-    
+
     @property
     def room_title(self):
         """Gets the title name of the room (e.g. /g/entoomen)"""
