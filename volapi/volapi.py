@@ -22,7 +22,7 @@ import random
 import re
 import string
 import time
-from collections import deque
+from collections import deque, OrderedDict
 
 import requests
 import websocket
@@ -311,7 +311,7 @@ class Room:
         self.conn.subscribe(self.name, self.user.name)
 
         self._user_count = 0
-        self._files = {}
+        self._files = OrderedDict()
         self._chat_log = []
 
         self.conn.listen_forever(self)
