@@ -22,6 +22,7 @@ import random
 import re
 import string
 import time
+import warnings
 from collections import deque, OrderedDict
 
 import requests
@@ -80,6 +81,8 @@ def parse_chat_message(data):
             msg += "#" + part['id']
         elif part['type'] == 'url':
             msg += part['text']
+        else:
+            warnings.warn("unknown message type '{}'".format(part['type']), Warning)
 
     options = data['options']
     admin = 'admin' in options
@@ -376,6 +379,14 @@ class Room:
                 change = item[0][1][1]
                 if change['key'] == 'name':
                     self.title = change['value']
+            elif data_type == "chat_name":
+                self.user.name = item[0][1][1]
+            elif data_type == "time":
+                pass # yup, that's the time. Thanks Laino
+            elif data_type == "subscribed":
+                pass # fuck you Lain
+            else:
+                warnings.warn("unknown data type '{}'".format(data_type), Warning)
 
     @property
     def chat_log(self):
