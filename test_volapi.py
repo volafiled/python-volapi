@@ -17,87 +17,85 @@ along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 
 import unittest
 import time
-from threading import Thread
 import warnings
 
 from volapi import Room
 
 
 class TestVolapi(unittest.TestCase):
+    """Main testing suite for volapi"""
 
     room_name = None
-    r = None
+    room = None
+    recv_index = 1
 
     def setUp(self):
-        warnings.simplefilter("ignore", ResourceWarning)
-        if not self.r or not self.r.connected:
-            self.r = Room(name=self.room_name)
-            self.room_name = self.r.name
+        warnings.simplefilter("ignore", Warning)
+        if not self.room or not self.room.connected:
+            self.room = Room(name=self.room_name)
+            self.room_name = self.room.name
 
     def test_user_count(self):
+        """Make sure there is 1 user (you) in room"""
         def compare_user_count(count):
-            self.assertEqual(self.r.user_count, count)
+            # pylint: disable=missing-docstring
+            self.assertEqual(self.room.user_count, count)
             self.assertEqual(1, count)
             return False
 
-        self.r.listen(onusercount=compare_user_count)
+        self.room.listen(onusercount=compare_user_count)
 
-    def test_get_chat_log(self):
-        self.y = 1
+    def test_chat_log(self):
+        """Make sure chatlog is the same as recieved chats and they
+        arrive in the right order"""
 
         def compare_chat(msg):
+            # pylint: disable=missing-docstring
             if not msg.admin:
-                self.assertEqual("TEST123" + str(self.y), msg.msg)
-                self.y += 1
-                self.assertEqual(self.r.user.name, msg.nick)
-                self.assertIn(msg, self.r.chat_log)
-                if self.y == 5:
-                    self.t = None
+                self.assertEqual("TEST123" + str(self.recv_index), msg.msg)
+                self.recv_index += 1
+                self.assertEqual(self.room.user.name, msg.nick)
+                self.assertIn(msg, self.room.chat_log)
+                if self.recv_index == 5:
                     return False
 
-        x = 0
-        while x <= 5:
-            self.r.post_chat("TEST123" + str(x))
-            x += 1
+        send_index = 0
+        while send_index <= 5:
+            self.room.post_chat("TEST123" + str(send_index))
+            send_index += 1
             time.sleep(1)
 
-        self.r.listen(onmessage=compare_chat)
+        self.room.listen(onmessage=compare_chat)
 
-    def test_get_files(self):
-        def compare_file(f):
-            self.assertEqual("test.py", f.name)
-            self.assertEqual(self.r.user.name, f.uploader)
-            self.assertIn(f, self.r.files)
-            self.t = None
+    def test_files(self):
+        """Test uploading and looking at files."""
+        def compare_file(file):
+            # pylint: disable=missing-docstring
+            self.assertEqual("test.py", file.name)
+            self.assertEqual(self.room.user.name, file.uploader)
+            self.assertIn(file, self.room.files)
             return False
 
-        self.r.upload_file(__file__, upload_as="test.py")
-        self.r.listen(onfile=compare_file)
+        self.room.upload_file(__file__, upload_as="test.py")
+        self.room.listen(onfile=compare_file)
 
     def test_user_change_nick(self):
+        """Make sure nickname changes correctly"""
         def compare_nick(msg):
+            # pylint: disable=missing-docstring
             if "newnick" in msg.msg:
                 self.assertIn("newnick", msg.msg)
                 self.assertTrue(msg.admin)
-                self.assertEqual(self.r.user.name, "newnick")
-                self.t = None
+                self.assertEqual(self.room.user.name, "newnick")
                 return False
 
-        def change_nick():
-            while self.t:
-                try:
-                    self.r.user.change_nick("newnick")
-                except:
-                    break
-                time.sleep(1)
-
-        self.t = Thread(target=change_nick)
-        self.t.start()
-        self.r.listen(onmessage=compare_nick)
+        self.room.user.change_nick("newnick")
+        self.room.listen(onmessage=compare_nick)
 
     def test_get_user_stats(self):
-        self.assertIsNone(self.r.get_user_stats("bad_user"))
-        self.assertIsNotNone(self.r.get_user_stats("lain"))
+        """Test inquires about registered users"""
+        self.assertIsNone(self.room.get_user_stats("bad_user"))
+        self.assertIsNotNone(self.room.get_user_stats("lain"))
 
 if __name__ == "__main__":
     unittest.main()
