@@ -53,14 +53,6 @@ def to_json(obj):
     return json.dumps(obj, separators=(',', ':'))
 
 
-def verify_username(username):
-    """Raises an exception if the given username is not valid."""
-    if len(username) > 12 or len(username) < 3:
-        raise ValueError("Username must be between 3 and 12 characters.")
-    if any(c not in string.ascii_letters + string.digits for c in username):
-        raise ValueError("Usernames can only contain alphanumeric characters.")
-
-
 def parse_chat_message(data):
     """Parses the data for a json chat message and returns a
     ChatMessage object"""
@@ -321,10 +313,17 @@ class Room:
             self._config['motd'] = config['motd']
             secret_key = config.get('secretKey')
 
-        except Exception:
-            raise IOError("Failed to get room title")
+            self._config['max_room_title'] = config['max_room_name_length']
+            self._config['max_message'] = config['max_message_length']
+            max_nick = config['max_alias_length']
+            self._config['max_file'] = config['file_max_size']
+            self._config['ttl'] = config['file_time_to_live']
+            self._config['session_lifetime'] = config['session_lifetime']
 
-        self.user = User(user, self.conn)
+        except Exception:
+            raise IOError("Failed to get room config")
+
+        self.user = User(user, self.conn, max_nick)
 
         self.conn.subscribe(self.name, self.user.name, secret_key)
 
@@ -446,6 +445,10 @@ class Room:
     def post_chat(self, msg, me=False):
         """Posts a msg to this room's chat. Set me=True if you want to /me"""
         # pylint: disable=invalid-name
+        if len(msg) > self._config['max_message']:
+            raise ValueError(
+                "Chat message must be at most {} characters".format(
+                    self._config['max_message']))
         if not me:
             self.conn.make_call("chat", [self.user.name, msg])
         else:
@@ -494,9 +497,10 @@ class Room:
 
     def set_title(self, new_name):
         """Sets the room name (e.g. /g/entoomen)"""
-        if len(new_name) > 24 or len(new_name) < 1:
+        if len(new_name) > self._config['max_title'] or len(new_name) < 1:
             raise ValueError(
-                "Room name must be at most 24 characters and at least 1.")
+                "Room name length must be between 1 and {} characters.".format(
+                    self._config['max_title']))
         self.conn.make_call("editInfo", [{"name": new_name}])
         self._config['title'] = new_name
 
@@ -595,14 +599,15 @@ class User:
 
     """Used by Room. Currently not very useful by itself"""
 
-    def __init__(self, name, conn):
+    def __init__(self, name, conn, max_len):
         if name is None:
             self.name = ""
         else:
-            verify_username(name)
+            self.verify_username(name)
         self.name = name
         self.conn = conn
         self.logged_in = False
+        self._max_length = max_len
 
     def login(self, password):
         """Attempts to log in as the current user with given password"""
@@ -632,7 +637,7 @@ class User:
         Note: Must be logged out to change nick"""
         if self.logged_in:
             raise RuntimeError("User must be logged out")
-        verify_username(new_nick)
+        self.verify_username(new_nick)
 
         self.conn.make_call("command", [self.name, "nick", new_nick])
         self.name = new_nick
@@ -668,6 +673,18 @@ class User:
 
         if 'error' in json_resp:
             raise ValueError("Wrong password.")
+
+    def verify_username(self, username):
+        """Raises an exception if the given username is not valid."""
+        if len(username) > self._max_length or len(username) < 3:
+            raise ValueError(
+                "Username must be between 3 and {} characters.".format(
+                    self._max_length))
+        if any(
+                c not in string.ascii_letters +
+                string.digits for c in username):
+            raise ValueError(
+                "Usernames can only contain alphanumeric characters.")
 
     def __repr__(self):
         return "<User({}, {})>".format(self.name, self.logged_in)
