@@ -310,18 +310,16 @@ class Room:
         self._config = {}
         try:
             text = self.conn.get(BASE_ROOM_URL + self.name).text
-            self._config['title'] = re.search(
-                r'name\s*:\s*"(.+?)"',
-                text).group(1)
-            self._config['private'] = re.search(
-                r'private\s*:\s*(.+?)',
-                text).group(1) == 'true'
-            self._config['motd'] = re.search(
-                r'name\s*:\s*"(.+?)"',
-                text).group(1)
-            secret_key = re.search(r'secretKey\s*:\s*"(.+?)"', text)
-            if secret_key:
-                secret_key = secret_key.group(1)
+            text = text.replace('\n', '')
+            text = re.sub(r'(\w+):', r'"\1":', text)
+            text = text.replace('true', '"true"').replace('false', '"false"')
+            text = re.search(r'config=({.+});', text).group(1)
+            config = json.loads(text)
+
+            self._config['title'] = config['name']
+            self._config['private'] = config['private'] == 'true'
+            self._config['motd'] = config['motd']
+            secret_key = config.get('secretKey')
 
         except Exception:
             raise IOError("Failed to get room title")
