@@ -159,14 +159,17 @@ class RoomConnection(Connection):
 
         self._ping_interval = 20  # default
 
-    def subscribe(self, room_name, username):
+    def subscribe(self, room_name, username, secret_key):
         """Make subscribe API call"""
         checksum, checksum2 = self._get_checksums(room_name)
-        obj = [-1, [[0, ["subscribe", {"room": room_name,
-                                       "checksum": checksum,
-                                       "checksum2": checksum2,
-                                       "nick": username
-                                       }]],
+        subscribe_options = {"room": room_name,
+                             "checksum": checksum,
+                             "checksum2": checksum2,
+                             "nick": username
+                             }
+        if secret_key:
+            subscribe_options['secretKey'] = secret_key
+        obj = [-1, [[0, ["subscribe", subscribe_options]],
                     0]]
         self.send_message("4" + to_json(obj))
 
@@ -316,13 +319,16 @@ class Room:
             self._config['motd'] = re.search(
                 r'name\s*:\s*"(.+?)"',
                 text).group(1)
+            secret_key = re.search(r'secretKey\s*:\s*"(.+?)"', text)
+            if secret_key:
+                secret_key = secret_key.group(1)
 
         except Exception:
             raise IOError("Failed to get room title")
 
         self.user = User(user, self.conn)
 
-        self.conn.subscribe(self.name, self.user.name)
+        self.conn.subscribe(self.name, self.user.name, secret_key)
 
         self._user_count = 0
         self._files = OrderedDict()
