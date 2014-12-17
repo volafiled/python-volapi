@@ -23,6 +23,7 @@ from volapi import Room
 
 
 class TestVolapi(unittest.TestCase):
+
     """Main testing suite for volapi"""
 
     room_name = None
@@ -74,6 +75,7 @@ class TestVolapi(unittest.TestCase):
             self.assertEqual("test.py", file.name)
             self.assertEqual(self.room.user.name, file.uploader)
             self.assertIn(file, self.room.files)
+            self.assertEqual(file, self.room.get_file(file.id))
             return False
 
         self.room.upload_file(__file__, upload_as="test.py")
@@ -96,6 +98,25 @@ class TestVolapi(unittest.TestCase):
         """Test inquires about registered users"""
         self.assertIsNone(self.room.get_user_stats("bad_user"))
         self.assertIsNotNone(self.room.get_user_stats("lain"))
+
+    def test_room_title(self):
+        """Test setting and getting room's title"""
+        self.assertEqual("New Room", self.room.room_title)
+        self.room.set_title("titlechange")
+        self.assertEqual("titlechange", self.room.room_title)
+
+    def test_private(self):
+        """Test setting and getting room's privacy"""
+        self.assertEqual(True, self.room.private)
+        self.room.set_room_private(False)
+        self.assertEqual(False, self.room.private)
+
+    def test_motd(self):
+        """Test setting and getting room's MOTD"""
+        self.assertEqual("", self.room.motd)
+        self.room.set_motd("new motd")
+        self.assertEqual("new motd", self.room.motd)
+
 
 if __name__ == "__main__":
     unittest.main()

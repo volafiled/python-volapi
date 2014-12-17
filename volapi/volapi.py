@@ -180,8 +180,8 @@ class RoomConnection(Connection):
             cs1 = re.search(r'config\.checksum\s*=\s*"(\w+?)"', text).group(1)
 
             return cs1, cs2
-        except Exception as ex:
-            raise IOError("Failed to get checksums") from ex
+        except Exception:
+            raise IOError("Failed to get checksums")
 
     def enqueue_file(self, file_id):
         """Enqueues a file id so listeners can see the file."""
@@ -301,14 +301,24 @@ class Room:
             name = self.conn.get(BASE_URL + "/new").url
             try:
                 self.name = re.search(r'r/(.+?)$', name).group(1)
-            except Exception as ex:
-                raise IOError("Failed to create room") from ex
+            except Exception:
+                raise IOError("Failed to create room")
 
+        self._config = {}
         try:
             text = self.conn.get(BASE_ROOM_URL + self.name).text
-            self.title = re.search(r'name\s*:\s*"(.+?)"', text).group(1)
-        except Exception as ex:
-            raise IOError("Failed to get room title") from ex
+            self._config['title'] = re.search(
+                r'name\s*:\s*"(.+?)"',
+                text).group(1)
+            self._config['private'] = re.search(
+                r'private\s*:\s*(.+?)',
+                text).group(1) == 'true'
+            self._config['motd'] = re.search(
+                r'name\s*:\s*"(.+?)"',
+                text).group(1)
+
+        except Exception:
+            raise IOError("Failed to get room title")
 
         self.user = User(user, self.conn)
 
@@ -380,13 +390,20 @@ class Room:
             elif data_type == "changed_config":
                 change = data
                 if change['key'] == 'name':
-                    self.title = change['value']
+                    self._config['title'] = change['value']
+                elif change['key'] == 'private':
+                    self._config['private'] = change['value'] == 'true'
+                elif change['key'] == 'motd':
+                    self._config['motd'] = change['value']
+                else:
+                    warnings.warn(
+                        "unknown config key '{}'".format(
+                            change['key']),
+                        Warning)
             elif data_type == "chat_name":
                 self.user.change_nick(data)
-            elif data_type == "time":
-                pass  # yup, that's the time. Thanks Laino
-            elif data_type == "subscribed":
-                pass  # fuck you Lain
+            elif data_type in ("time", "subscribed"):
+                pass
             else:
                 warnings.warn(
                     "unknown data type '{}'".format(data_type),
@@ -469,25 +486,38 @@ class Room:
     @property
     def room_title(self):
         """Gets the title name of the room (e.g. /g/entoomen)"""
-        return self.title
+        return self._config['title']
 
-    def set_room_title(self, new_name):
-        """Sets the room name"""
+    def set_title(self, new_name):
+        """Sets the room name (e.g. /g/entoomen)"""
         if len(new_name) > 24 or len(new_name) < 1:
             raise ValueError(
                 "Room name must be at most 24 characters and at least 1.")
         self.conn.make_call("editInfo", [{"name": new_name}])
+        self._config['title'] = new_name
 
-    def set_room_private(self, private):
+    @property
+    def private(self):
+        """True if the room is private, False otherwise"""
+        return self._config['private']
+
+    def set_room_private(self, value):
         """Sets the room to private if given True, else sets to public"""
-        private = "true" if private else "false"
-        self.conn.make_call("editInfo", [{"private": private}])
+        priv = "true" if value else "false"
+        self.conn.make_call("editInfo", [{"private": priv}])
+        self._config['private'] = value
+
+    @property
+    def motd(self):
+        """Returns the message of the day for this room"""
+        return self._config['motd']
 
     def set_motd(self, motd):
         """Sets the room's MOTD"""
         if len(motd) > 1000:
             raise ValueError("Room's MOTD must be at most 1000 characters")
         self.conn.make_call("editInfo", [{"motd": motd}])
+        self._config['motd'] = motd
 
     def clear(self):
         """Clears the cached information, if any"""
