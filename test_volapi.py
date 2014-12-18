@@ -23,6 +23,7 @@ from volapi import Room
 
 room = Room()
 
+
 class TestVolapi(unittest.TestCase):
 
     """Main testing suite for volapi"""
