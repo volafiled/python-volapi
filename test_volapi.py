@@ -21,30 +21,23 @@ import warnings
 
 from volapi import Room
 
+room = Room()
 
 class TestVolapi(unittest.TestCase):
 
     """Main testing suite for volapi"""
 
-    room_name = None
-    room = None
     recv_index = 1
-
-    def setUp(self):
-        warnings.simplefilter("ignore", Warning)
-        if not self.room or not self.room.connected:
-            self.room = Room(name=self.room_name)
-            self.room_name = self.room.name
 
     def test_user_count(self):
         """Make sure there is 1 user (you) in room"""
         def compare_user_count(count):
             # pylint: disable=missing-docstring
-            self.assertEqual(self.room.user_count, count)
+            self.assertEqual(room.user_count, count)
             self.assertEqual(1, count)
             return False
 
-        self.room.listen(onusercount=compare_user_count)
+        room.listen(onusercount=compare_user_count)
 
     def test_chat_log(self):
         """Make sure chatlog is the same as recieved chats and they
@@ -55,31 +48,30 @@ class TestVolapi(unittest.TestCase):
             if not msg.admin:
                 self.assertEqual("TEST123" + str(self.recv_index), msg.msg)
                 self.recv_index += 1
-                self.assertEqual(self.room.user.name, msg.nick)
-                self.assertIn(msg, self.room.chat_log)
-                if self.recv_index == 5:
+                self.assertEqual(room.user.name, msg.nick)
+                self.assertIn(msg, room.chat_log)
+                if self.recv_index == 3:
                     return False
 
-        send_index = 0
-        while send_index <= 5:
-            self.room.post_chat("TEST123" + str(send_index))
+        for send_index in range(1, 3):
+            room.post_chat("TEST123" + str(send_index))
             send_index += 1
             time.sleep(1)
 
-        self.room.listen(onmessage=compare_chat)
+        room.listen(onmessage=compare_chat)
 
     def test_files(self):
         """Test uploading and looking at files."""
         def compare_file(file):
             # pylint: disable=missing-docstring
             self.assertEqual("test.py", file.name)
-            self.assertEqual(self.room.user.name, file.uploader)
-            self.assertIn(file, self.room.files)
-            self.assertEqual(file, self.room.get_file(file.id))
+            self.assertEqual(room.user.name, file.uploader)
+            self.assertIn(file, room.files)
+            self.assertEqual(file, room.get_file(file.file_id))
             return False
 
-        self.room.upload_file(__file__, upload_as="test.py")
-        self.room.listen(onfile=compare_file)
+        room.upload_file(__file__, upload_as="test.py")
+        room.listen(onfile=compare_file)
 
     def test_user_change_nick(self):
         """Make sure nickname changes correctly"""
@@ -88,35 +80,35 @@ class TestVolapi(unittest.TestCase):
             if "newnick" in msg.msg:
                 self.assertIn("newnick", msg.msg)
                 self.assertTrue(msg.admin)
-                self.assertEqual(self.room.user.name, "newnick")
+                self.assertEqual(room.user.name, "newnick")
                 return False
 
-        self.room.user.change_nick("newnick")
-        self.room.listen(onmessage=compare_nick)
+        room.user.change_nick("newnick")
+        room.listen(onmessage=compare_nick)
 
     def test_get_user_stats(self):
         """Test inquires about registered users"""
-        self.assertIsNone(self.room.get_user_stats("bad_user"))
-        self.assertIsNotNone(self.room.get_user_stats("lain"))
+        self.assertIsNone(room.get_user_stats("bad_user"))
+        self.assertIsNotNone(room.get_user_stats("lain"))
 
     def test_room_title(self):
         """Test setting and getting room's title"""
-        self.assertEqual("New Room", self.room.room_title)
-        self.room.set_title("titlechange")
-        self.assertEqual("titlechange", self.room.room_title)
+        self.assertTrue(room.owner)
+        self.assertEqual("New Room", room.title)
+        room.set_title("titlechange")
+        self.assertEqual("titlechange", room.title)
 
     def test_private(self):
         """Test setting and getting room's privacy"""
-        self.assertEqual(True, self.room.private)
-        self.room.set_room_private(False)
-        self.assertEqual(False, self.room.private)
+        self.assertEqual(True, room.private)
+        room.set_private(False)
+        self.assertEqual(False, room.private)
 
     def test_motd(self):
         """Test setting and getting room's MOTD"""
-        self.assertEqual("", self.room.motd)
-        self.room.set_motd("new motd")
-        self.assertEqual("new motd", self.room.motd)
-
+        self.assertEqual("", room.motd)
+        room.set_motd("new motd")
+        self.assertEqual("new motd", room.motd)
 
 if __name__ == "__main__":
     unittest.main()

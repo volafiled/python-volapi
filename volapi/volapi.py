@@ -23,6 +23,7 @@ import re
 import string
 import time
 import warnings
+import logging
 from collections import deque, OrderedDict
 
 import requests
@@ -160,7 +161,7 @@ class RoomConnection(Connection):
                              "nick": username
                              }
         if secret_key:
-            subscribe_options['secretKey'] = secret_key
+            subscribe_options['secretToken'] = secret_key
         obj = [-1, [[0, ["subscribe", subscribe_options]],
                     0]]
         self.send_message("4" + to_json(obj))
@@ -250,6 +251,8 @@ class RoomConnection(Connection):
                             with self.condition:
                                 self.condition.notify_all()
 
+            except:
+                logging.exception('')
             finally:
                 try:
                     self.close()
@@ -291,17 +294,21 @@ class Room:
 
         self.conn = RoomConnection()
 
+        room_resp = None
         self.name = name
         if not self.name:
-            name = self.conn.get(BASE_URL + "/new").url
+            room_resp = self.conn.get(BASE_URL + "/new")
+            url = room_resp.url
             try:
-                self.name = re.search(r'r/(.+?)$', name).group(1)
+                self.name = re.search(r'r/(.+?)$', url).group(1)
             except Exception:
                 raise IOError("Failed to create room")
 
         self._config = {}
         try:
-            text = self.conn.get(BASE_ROOM_URL + self.name).text
+            if not room_resp:
+                room_resp = self.conn.get(BASE_URL + "/" + self.name)
+            text = room_resp.text
             text = text.replace('\n', '')
             text = re.sub(r'(\w+):', r'"\1":', text)
             text = text.replace('true', '"true"').replace('false', '"false"')
@@ -311,9 +318,9 @@ class Room:
             self._config['title'] = config['name']
             self._config['private'] = config['private'] == 'true'
             self._config['motd'] = config['motd']
-            secret_key = config.get('secretKey')
+            secret_key = config.get('secretToken')
 
-            self._config['max_room_title'] = config['max_room_name_length']
+            self._config['max_title'] = config['max_room_name_length']
             self._config['max_message'] = config['max_message_length']
             max_nick = config['max_alias_length']
             self._config['max_file'] = config['file_max_size']
@@ -324,6 +331,7 @@ class Room:
             raise IOError("Failed to get room config")
 
         self.user = User(user, self.conn, max_nick)
+        self.owner = False
 
         self.conn.subscribe(self.name, self.user.name, secret_key)
 
@@ -404,7 +412,9 @@ class Room:
                             change['key']),
                         Warning)
             elif data_type == "chat_name":
-                self.user.change_nick(data)
+                self.user.name = data
+            elif data_type == "owner":
+                self.owner = True
             elif data_type in ("time", "subscribed"):
                 pass
             else:
@@ -449,10 +459,14 @@ class Room:
             raise ValueError(
                 "Chat message must be at most {} characters".format(
                     self._config['max_message']))
+
+        while not self.user.name:
+            with self.conn.condition:
+                self.conn.condition.wait()
         if not me:
             self.conn.make_call("chat", [self.user.name, msg])
         else:
-            self.conn.make_call("command", [self.name, "me", msg])
+            self.conn.make_call("command", [self.user.name, "me", msg])
 
     def upload_file(self, filename, upload_as=None, blocksize=None,
                     callback=None):
@@ -491,12 +505,14 @@ class Room:
             self.conn.close()
 
     @property
-    def room_title(self):
+    def title(self):
         """Gets the title name of the room (e.g. /g/entoomen)"""
         return self._config['title']
 
     def set_title(self, new_name):
         """Sets the room name (e.g. /g/entoomen)"""
+        if not self.owner:
+            raise RuntimeError("You must own this room to do that")
         if len(new_name) > self._config['max_title'] or len(new_name) < 1:
             raise ValueError(
                 "Room name length must be between 1 and {} characters.".format(
@@ -509,8 +525,10 @@ class Room:
         """True if the room is private, False otherwise"""
         return self._config['private']
 
-    def set_room_private(self, value):
+    def set_private(self, value):
         """Sets the room to private if given True, else sets to public"""
+        if not self.owner:
+            raise RuntimeError("You must own this room to do that")
         priv = "true" if value else "false"
         self.conn.make_call("editInfo", [{"private": priv}])
         self._config['private'] = value
@@ -522,6 +540,8 @@ class Room:
 
     def set_motd(self, motd):
         """Sets the room's MOTD"""
+        if not self.owner:
+            raise RuntimeError("You must own this room to do that")
         if len(motd) > 1000:
             raise ValueError("Room's MOTD must be at most 1000 characters")
         self.conn.make_call("editInfo", [{"motd": motd}])
@@ -600,6 +620,7 @@ class User:
     """Used by Room. Currently not very useful by itself"""
 
     def __init__(self, name, conn, max_len):
+        self._max_length = max_len
         if name is None:
             self.name = ""
         else:
@@ -607,7 +628,6 @@ class User:
         self.name = name
         self.conn = conn
         self.logged_in = False
-        self._max_length = max_len
 
     def login(self, password):
         """Attempts to log in as the current user with given password"""
