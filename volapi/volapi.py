@@ -23,7 +23,6 @@ import re
 import string
 import time
 import warnings
-import logging
 from collections import deque, OrderedDict
 
 import requests
@@ -250,9 +249,6 @@ class RoomConnection(Connection):
                             room.add_data(json_data)
                             with self.condition:
                                 self.condition.notify_all()
-
-            except:
-                logging.exception('')
             finally:
                 try:
                     self.close()
@@ -287,8 +283,9 @@ class Room:
             r.post_chat("Hello, world!")
             r.upload_file("onii-chan.ogg")
     """
+    # pylint: disable=too-many-instance-attributes
 
-    def __init__(self, name=None, user=None):
+    def __init__(self, name=None, user=None, subscribe=True):
         """name is the room name, if none then makes a new room
         user is your user name, if none then generates one for you"""
 
@@ -333,13 +330,13 @@ class Room:
         self.user = User(user, self.conn, max_nick)
         self.owner = False
 
-        self.conn.subscribe(self.name, self.user.name, secret_key)
-
         self._user_count = 0
         self._files = OrderedDict()
         self._chat_log = []
 
-        self.conn.listen_forever(self)
+        if subscribe:
+            self.conn.subscribe(self.name, self.user.name, secret_key)
+            self.conn.listen_forever(self)
 
     def __repr__(self):
         return ("<Room({},{},connected={})>".
