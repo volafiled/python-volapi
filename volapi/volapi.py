@@ -304,7 +304,7 @@ class Room:
         self._config = {}
         try:
             if not room_resp:
-                room_resp = self.conn.get(BASE_URL + "/" + self.name)
+                room_resp = self.conn.get(BASE_ROOM_URL + self.name)
             text = room_resp.text
             text = text.replace('\n', '')
             text = re.sub(r'(\w+):', r'"\1":', text)
@@ -327,6 +327,8 @@ class Room:
         except Exception:
             raise IOError("Failed to get room config")
 
+        if not subscribe and not user:
+            user = random_id(6)
         self.user = User(user, self.conn, max_nick)
         self.owner = False
 
