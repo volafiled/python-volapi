@@ -414,7 +414,13 @@ class Room:
                 self.user.name = data
             elif data_type == "owner":
                 self.owner = True
-            elif data_type in ("time", "subscribed"):
+            elif data_type == "time":
+                #TODO
+                pass
+            elif data_type == "update_assets":
+                #TODO
+                pass
+            elif data_type in ("subscribed", "hooks"):
                 pass
             else:
                 warnings.warn(
