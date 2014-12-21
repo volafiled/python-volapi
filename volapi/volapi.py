@@ -32,7 +32,7 @@ from threading import Barrier, Condition, Thread
 
 from .multipart import Data
 
-__version__ = "0.9.6"
+__version__ = "0.9.6.5"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -307,7 +307,10 @@ class Room:
                 room_resp = self.conn.get(BASE_ROOM_URL + self.name)
             text = room_resp.text
             text = text.replace('\n', '')
-            text = re.sub(r'(\w+):', r'"\1":', text)
+            text = re.sub(
+                r'(\w+):(?=([^"\\]*(\\.|"([^"\\]*\\.)*[^"\\]*"))*[^"]*$)',
+                r'"\1":',
+                text)
             text = text.replace('true', '"true"').replace('false', '"false"')
             text = re.search(r'config=({.+});', text).group(1)
             config = json.loads(text)

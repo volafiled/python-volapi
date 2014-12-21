@@ -111,5 +111,9 @@ class TestVolapi(unittest.TestCase):
         room.set_motd("new motd")
         self.assertEqual("new motd", room.motd)
 
+    def test_beepi(self):
+        with Room("BEEPi") as r:
+            pass
+
 if __name__ == "__main__":
     unittest.main()
