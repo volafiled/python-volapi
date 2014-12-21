@@ -32,7 +32,7 @@ from threading import Barrier, Condition, Thread
 
 from .multipart import Data
 
-__version__ = "0.9.6.5"
+__version__ = "0.9.7"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -406,10 +406,10 @@ class Room:
                 change = data
                 if change['key'] == 'name':
                     self._config['title'] = change['value']
-                if change['key'] == 'file_ttl':
+                elif change['key'] == 'file_ttl':
                     self._config['ttl'] = change['value']
                 elif change['key'] == 'private':
-                    self._config['private'] = change['value'] == 'true'
+                    self._config['private'] = change['value']
                 elif change['key'] == 'motd':
                     self._config['motd'] = change['value']
                 else:
@@ -420,11 +420,11 @@ class Room:
             elif data_type == "chat_name":
                 self.user.name = data
             elif data_type == "owner":
-                self.owner = True
+                self.owner = data['owner']
             elif data_type == "update_assets":
                 # TODO
                 pass
-            elif data_type in ("subscribed", "hooks", "time"):
+            elif data_type in ("subscribed", "hooks", "time", "login"):
                 pass
             else:
                 warnings.warn(
@@ -542,8 +542,7 @@ class Room:
         """Sets the room to private if given True, else sets to public"""
         if not self.owner:
             raise RuntimeError("You must own this room to do that")
-        priv = "true" if value else "false"
-        self.conn.make_call("editInfo", [{"private": priv}])
+        self.conn.make_call("editInfo", [{"private": value}])
         self._config['private'] = value
 
     @property
@@ -652,7 +651,7 @@ class User:
         if name is None:
             self.name = ""
         else:
-            self.verify_username(name)
+            self._verify_username(name)
         self.name = name
         self.conn = conn
         self.logged_in = False
@@ -685,7 +684,7 @@ class User:
         Note: Must be logged out to change nick"""
         if self.logged_in:
             raise RuntimeError("User must be logged out")
-        self.verify_username(new_nick)
+        self._verify_username(new_nick)
 
         self.conn.make_call("command", [self.name, "nick", new_nick])
         self.name = new_nick
@@ -722,7 +721,7 @@ class User:
         if 'error' in json_resp:
             raise ValueError("Wrong password.")
 
-    def verify_username(self, username):
+    def _verify_username(self, username):
         """Raises an exception if the given username is not valid."""
         if len(username) > self._max_length or len(username) < 3:
             raise ValueError(
