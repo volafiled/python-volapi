@@ -40,19 +40,6 @@ BASE_REST_URL = BASE_URL + "/rest/"
 BASE_WS_URL = "wss://volafile.io/api/"
 
 
-def random_id(length):
-    """Generates a random ID of n length"""
-    def char():
-        """Generate single random char"""
-        return random.choice(string.ascii_letters + string.digits)
-    return ''.join(char() for _ in range(length))
-
-
-def to_json(obj):
-    """Create a compact JSON string from an object"""
-    return json.dumps(obj, separators=(',', ':'))
-
-
 def parse_chat_message(data):
     """Parses the data for a json chat message and returns a
     ChatMessage object"""
@@ -89,6 +76,19 @@ def parse_chat_message(data):
                                donator=donator,
                                admin=admin)
     return chat_message
+
+
+def random_id(length):
+    """Generates a random ID of n length"""
+    def char():
+        """Generate single random char"""
+        return random.choice(string.ascii_letters + string.digits)
+    return ''.join(char() for _ in range(length))
+
+
+def to_json(obj):
+    """Create a compact JSON string from an object"""
+    return json.dumps(obj, separators=(',', ':'))
 
 
 class Connection(requests.Session):
@@ -330,7 +330,7 @@ class Room:
         if not subscribe and not user:
             user = random_id(6)
         self.user = User(user, self.conn, max_nick)
-        self.owner = False
+        self.owner = bool(secret_key)
 
         self._user_count = 0
         self._files = OrderedDict()
@@ -386,10 +386,12 @@ class Room:
                 files = data['files']
                 for file in files:
                     self.conn.enqueue_file(file[0])
-                    self._files[file[0]] = File(file[0],
-                                                file[1],
-                                                file[2],
-                                                file[3],
+                    self._files[file[0]] = File(file[0],  # id
+                                                file[1],  # name
+                                                file[2],  # type
+                                                file[3],  # size
+                                                # file[4],  # upload time
+                                                # file[5],  # expire time
                                                 file[6]['user'])
             elif data_type == "delete_file":
                 del self._files[data]
@@ -401,6 +403,8 @@ class Room:
                 change = data
                 if change['key'] == 'name':
                     self._config['title'] = change['value']
+                if change['key'] == 'file_ttl':
+                    self._config['ttl'] = change['value']
                 elif change['key'] == 'private':
                     self._config['private'] = change['value'] == 'true'
                 elif change['key'] == 'motd':
@@ -415,10 +419,10 @@ class Room:
             elif data_type == "owner":
                 self.owner = True
             elif data_type == "time":
-                #TODO
+                # TODO
                 pass
             elif data_type == "update_assets":
-                #TODO
+                # TODO
                 pass
             elif data_type in ("subscribed", "hooks"):
                 pass
@@ -480,6 +484,10 @@ class Room:
         You may specify upload_as to change the name it is uploaded as.
         You can also specify a blocksize and a callback if you wish.
         Returns the file's id on success and None on failure."""
+        if os.stat(filename).st_size > self._config['max_file']:
+            raise ValueError(
+                "File must be at most {} GB".format(
+                    self._config['max_file'] >> 30))
         file = filename if hasattr(filename, "read") else open(filename, 'rb')
         filename = upload_as or os.path.split(filename)[1]
 
@@ -603,7 +611,8 @@ class File:
             name,
             file_type=None,
             size=None,
-            uploader=None):
+            uploader=None
+    ):
         self.file_id = file_id
         self.name = name
         self.file_type = file_type
