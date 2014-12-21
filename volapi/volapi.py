@@ -617,9 +617,9 @@ class File:
             upload_time=None,
             uploader=None
     ):
-        self.file_id = file_id
+        self.id = file_id
         self.name = name
-        self.file_type = file_type
+        self.type = file_type
         self.size = size
         self.expire_time = expire_time
         self.upload_time = upload_time
@@ -628,7 +628,7 @@ class File:
     @property
     def url(self):
         """Gets the download url of the file"""
-        return "{}/get/{}/{}".format(BASE_URL, self.file_id, self.name)
+        return "{}/get/{}/{}".format(BASE_URL, self.id, self.name)
 
     @property
     def expired(self):
@@ -640,9 +640,19 @@ class File:
         """Returns how many seconds before this file expires"""
         return self.expire_time - time.time()
 
+    @property
+    def thumbnail(self):
+        """Returns the thumbnail url for this file.
+        Must be a video or an image file. The thumbnail
+        may not be ready immediately after a file is uploaded."""
+        if self.type not in ("video", "image"):
+            raise RuntimeError("Only videos and images have thumbnails")
+        vid = "video_" if self.type == "video" else ""
+        return "{}/asset/{}/{}thumb".format(BASE_URL, self.id, vid)
+
     def __repr__(self):
         return ("<File({},{},{},{})>".
-                format(self.file_id, self.size, self.uploader, self.name))
+                format(self.id, self.size, self.uploader, self.name))
 
 
 class User:

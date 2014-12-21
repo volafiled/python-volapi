@@ -68,7 +68,7 @@ class TestVolapi(unittest.TestCase):
             self.assertEqual("test.py", file.name)
             self.assertEqual(room.user.name, file.uploader)
             self.assertIn(file, room.files)
-            self.assertEqual(file, room.get_file(file.file_id))
+            self.assertEqual(file, room.get_file(file.id))
             return False
 
         room.upload_file(__file__, upload_as="test.py")
