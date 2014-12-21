@@ -448,6 +448,9 @@ class Room:
         """Returns list of File objects for this room.
         Note: This will only reflect the files at the time
         this method was called."""
+        for fid in self._files.keys():
+            if self._files[fid].expired:
+                del self._files[fid]
         return list(self._files.values())
 
     def get_user_stats(self, name):
