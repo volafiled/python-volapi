@@ -40,6 +40,7 @@ setup(
     license='GPLv3',
     author='PhearTheCeal',
     author_email='ptc@ptc.pe',
+    test_suite="test_volapi.TestVolapi",
     packages=['volapi'],
     include_package_data=True,
     classifiers=[
