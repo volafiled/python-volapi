@@ -393,8 +393,8 @@ class Room:
                                                 file[1],  # name
                                                 file[2],  # type
                                                 file[3],  # size
-                                                # file[4],  # upload time
-                                                # file[5],  # expire time
+                                                file[4] / 1000,  # expire time
+                                                file[5] / 1000,  # upload time
                                                 file[6]['user'])
             elif data_type == "delete_file":
                 del self._files[data]
@@ -421,13 +421,10 @@ class Room:
                 self.user.name = data
             elif data_type == "owner":
                 self.owner = True
-            elif data_type == "time":
-                # TODO
-                pass
             elif data_type == "update_assets":
                 # TODO
                 pass
-            elif data_type in ("subscribed", "hooks"):
+            elif data_type in ("subscribed", "hooks", "time"):
                 pass
             else:
                 warnings.warn(
@@ -614,18 +611,32 @@ class File:
             name,
             file_type=None,
             size=None,
+            expire_time=None,
+            upload_time=None,
             uploader=None
     ):
         self.file_id = file_id
         self.name = name
         self.file_type = file_type
         self.size = size
+        self.expire_time = expire_time
+        self.upload_time = upload_time
         self.uploader = uploader
 
     @property
     def url(self):
         """Gets the download url of the file"""
         return "{}/get/{}/{}".format(BASE_URL, self.file_id, self.name)
+
+    @property
+    def expired(self):
+        """Returns true if the file has expired, false otherwise"""
+        return time.time() >= self.expire_time
+
+    @property
+    def time_left(self):
+        """Returns how many seconds before this file expires"""
+        return self.expire_time - time.time()
 
     def __repr__(self):
         return ("<File({},{},{},{})>".
