@@ -25,7 +25,7 @@ Basic
         # Upload a file under a new filename and save the id
         id = beepi.upload_file("images/disgusted.jpg", upload_as="mfw.jpg")
         # Show off your file in the chat
-        beepi.post_chat("Hey guys check out my file @{}".format(id))
+        beepi.post_chat("mfw posting from volapi @{}".format(id))
         # Print out chat messages since you got to the room
         for msg in beepi.chat_log:
             print(msg.nick + ": " + msg.msg)
