@@ -394,8 +394,8 @@ class Room:
                                                 file[2],  # type
                                                 file[3],  # size
                                                 file[4] / 1000,  # expire time
-                                                file[5] / 1000,  # upload time
                                                 file[6]['user'])
+                    self.conn.make_call("get_fileinfo", [file[0]])
             elif data_type == "delete_file":
                 del self._files[data]
             elif data_type == "chat":
@@ -421,10 +421,11 @@ class Room:
                 self.user.name = data
             elif data_type == "owner":
                 self.owner = data['owner']
-            elif data_type == "update_assets":
-                # TODO
-                pass
-            elif data_type in ("subscribed", "hooks", "time", "login"):
+            elif data_type == "fileinfo":
+                file = self._files[data['id']]
+                file.info = data.get(file.type)
+            elif data_type in ("update_assets", "subscribed",
+                               "hooks", "time", "login"):
                 pass
             else:
                 warnings.warn(
@@ -604,7 +605,7 @@ class File:
 
     """Basically a struct for a file's info on volafile, with an additional
     method to retrieve the file's URL."""
-    # pylint: disable=too-few-public-methods
+    # pylint: disable=invalid-name
     # pylint: disable=too-many-arguments
 
     def __init__(
@@ -614,16 +615,15 @@ class File:
             file_type=None,
             size=None,
             expire_time=None,
-            upload_time=None,
-            uploader=None
+            uploader=None,
     ):
         self.id = file_id
         self.name = name
         self.type = file_type
         self.size = size
         self.expire_time = expire_time
-        self.upload_time = upload_time
         self.uploader = uploader
+        self.info = None
 
     @property
     def url(self):
@@ -642,13 +642,25 @@ class File:
 
     @property
     def thumbnail(self):
-        """Returns the thumbnail url for this file.
-        Must be a video or an image file. The thumbnail
-        may not be ready immediately after a file is uploaded."""
-        if self.type not in ("video", "image"):
-            raise RuntimeError("Only videos and images have thumbnails")
+        """Returns the thumbnail url for this image, audio, or video file."""
+        if self.type not in ("video", "image", "audio"):
+            raise RuntimeError("Only videos, audio and images have thumbnails")
         vid = "video_" if self.type == "video" else ""
         return "{}/asset/{}/{}thumb".format(BASE_URL, self.id, vid)
+
+    @property
+    def resolution(self):
+        """Gets the resolution of this image or video file in format (W, H)"""
+        if self.type not in ("video", "image"):
+            raise RuntimeError("Only videos and images have resolutions")
+        return (self.info['width'], self.info['height'])
+
+    @property
+    def duration(self):
+        """Returns the duration in seconds of this audio or video file"""
+        if self.type not in ("video", "audio"):
+            raise RuntimeError("Only videos and audio have durations")
+        return self.info.get('length') or self.info.get('duration')
 
     def __repr__(self):
         return ("<File({},{},{},{})>".
