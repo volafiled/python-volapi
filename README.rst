@@ -39,4 +39,5 @@ Listening
         def interject(msg):
             if "linux" in msg.msg.lower():
                 room.post_chat("Don't you mean GNU/Linux?")
-        room.listen(onmessage=interject)
+        room.add_listener("chat", interject)
+        room.listen()

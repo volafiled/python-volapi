@@ -23,12 +23,18 @@ import re
 import string
 import time
 import warnings
-from collections import deque, OrderedDict
 
 import requests
 import websocket
 
-from threading import Barrier, Condition, Thread
+from collections import OrderedDict
+from collections import defaultdict
+from collections import namedtuple
+from threading import Barrier
+from threading import Condition
+from threading import RLock
+from threading import Thread
+from threading import get_ident as get_thread_ident
 
 from .multipart import Data
 
@@ -38,6 +44,8 @@ BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
 BASE_REST_URL = BASE_URL + "/rest/"
 BASE_WS_URL = "wss://volafile.io/api/"
+EVENT_TYPES = ("chat", "file", "user_count", "config", "user", "owner",
+               "update_assets", "subscribed", "hooks", "time", "login")
 
 
 def parse_chat_message(data):
@@ -89,6 +97,40 @@ def random_id(length):
 def to_json(obj):
     """Create a compact JSON string from an object"""
     return json.dumps(obj, separators=(',', ':'))
+
+
+class Listeners(namedtuple("Listeners", ("callbacks", "queue", "lock"))):
+
+    """Collection of Listeners"""
+
+    def __new__(cls):
+        return super().__new__(cls, list(), list(), RLock())
+
+    def process(self):
+        """Process queue for these listeners"""
+        with self.lock:
+            for item in self.queue:
+                callbacks = [c for c in self.callbacks
+                             if c(item) is not False]
+                self.callbacks.clear()
+                self.callbacks.extend(callbacks)
+            self.queue.clear()
+            return len(self.callbacks)
+
+    def add(self, callback):
+        """Add a new listener"""
+        with self.lock:
+            self.callbacks.append(callback)
+
+    def enqueue(self, item):
+        """Queue a new data item"""
+        with self.lock:
+            self.queue.append(item)
+
+    def __len__(self):
+        """Return number of listeners in collection"""
+        with self.lock:
+            return len(self.callbacks)
 
 
 class Connection(requests.Session):
@@ -146,8 +188,9 @@ class RoomConnection(Connection):
 
         self.condition = Condition()
 
-        self._file_queue = deque()
-        self._message_queue = deque()
+        self.lock = RLock()
+        self.listeners = defaultdict(lambda: defaultdict(Listeners))
+        self.must_process = False
 
         self._ping_interval = 20  # default
 
@@ -178,48 +221,51 @@ class RoomConnection(Connection):
         except Exception:
             raise IOError("Failed to get checksums")
 
-    def enqueue_file(self, file_id):
-        """Enqueues a file id so listeners can see the file."""
-        self._file_queue.appendleft(file_id)
+    def add_listener(self, event_type, callback):
+        """Add a listener for specific event type.
+        You'll need to actually listen for changes using the listen method"""
+        if event_type not in EVENT_TYPES:
+            raise ValueError("Invalid event type: {}".format(event_type))
+        thread = get_thread_ident()
+        with self.lock:
+            self.listeners[event_type][thread].add(callback)
 
-    def enqueue_message(self, msg):
-        """Enqueues a ChatMessage so listeners can see it."""
-        self._message_queue.appendleft(msg)
+    def enqueue_data(self, event_type, data):
+        """Enqueue a data item for specific event type"""
+        with self.lock:
+            for listener in self.listeners[event_type].values():
+                listener.enqueue(data)
+                self.must_process = True
 
-    def listen(self, room, onmessage=None, onfile=None, onusercount=None):
-        """Listen for incoming events for the given room.
-        You need to at least provide one of the possible listener functions.
-        You can detach a listener by returning False (exactly, not just a
-        false-y value).
-        The function will not return unless all listeners are detached again or
-        the WebSocket connection is closed.
-        """
-        if not onmessage and not onfile and not onusercount:
-            raise ValueError("At least one of onmessage, onfile, onusercount "
-                             "must be specified")
-        last_user = 0
+    def process_queues(self):
+        """Process queues if any have data queued"""
+        with self.lock:
+            if not self.must_process:
+                return
+            with self.condition:
+                self.condition.notify_all()
+            self.must_process = False
+
+    @property
+    def _listeners_for_thread(self):
+        """All Listeners for the current thread"""
+        thread = get_thread_ident()
+        with self.lock:
+            return [l for m in self.listeners.values()
+                    for (tid, l) in m.items() if tid == thread]
+
+    def listen(self):
+        """Listen for changes in all registered listeners."""
+        listeners = self._listeners_for_thread
+        if not sum(len(l) for l in listeners):
+            raise ValueError("No active listeners")
         with self.condition:
-            while self.connected and (onmessage or onfile or onusercount):
-                while ((not self._message_queue or not onmessage) and
-                       (not self._file_queue or not onfile) and
-                       (room.user_count == last_user or not onusercount) and
-                       self.connected):
-                    self.condition.wait()
-
-                if onusercount and room.user != last_user:
-                    if onusercount(room.user_count) is False:
-                        # detach
-                        onusercount = None
-
-                while onfile and self._file_queue:
-                    if onfile(room.get_file(self._file_queue.pop())) is False:
-                        # detach
-                        onfile = None
-
-                while onmessage and self._message_queue:
-                    if onmessage(self._message_queue.pop()) is False:
-                        # detach
-                        onmessage = None
+            while self.connected:
+                self.condition.wait()
+                with self.lock:
+                    listeners = self._listeners_for_thread
+                if not sum(l.process() for l in listeners):
+                    break
 
     def listen_forever(self, room):
         """Listens for new data about the room from the websocket
@@ -364,15 +410,22 @@ class Room:
             raise ValueError("No file with id {}".format(file_id))
         return self._files[file_id]
 
+    def add_listener(self, event_type, callback):
+        """Add a listener for specific event type.
+        You'll need to actually listen for changes using the listen method"""
+        return self.conn.add_listener(event_type, callback)
+
     def listen(self, onmessage=None, onfile=None, onusercount=None):
-        """Listen for incoming events.
-        You need to at least provide one of the possible listener functions.
-        You can detach a listener by returning False (exactly, not just a
-        false-y value).
-        The function will not return unless all listeners are detached again or
-        the WebSocket connection is closed.
-        """
-        self.conn.listen(self, onmessage, onfile, onusercount)
+        """Listen for changes in all registered listeners.
+        Please note that the on* arguments are present solely for legacy
+        purposes. New code should use add_listener."""
+        if onmessage:
+            self.add_listener("chat", onmessage)
+        if onfile:
+            self.add_listener("file", onfile)
+        if onusercount:
+            self.add_listener("user_count", onusercount)
+        return self.conn.listen()
 
     def add_data(self, data):
         """Add data to given room's state"""
@@ -385,10 +438,10 @@ class Room:
                 data = dict()
             if data_type == "user_count":
                 self._user_count = data
+                self.conn.enqueue_data("user_count", self._user_count)
             elif data_type == "files":
                 files = data['files']
                 for file in files:
-                    self.conn.enqueue_file(file[0])
                     self._files[file[0]] = File(file[0],  # id
                                                 file[1],  # name
                                                 file[2],  # type
@@ -396,12 +449,13 @@ class Room:
                                                 file[4] / 1000,  # expire time
                                                 file[6]['user'])
                     self.conn.make_call("get_fileinfo", [file[0]])
+                    self.conn.enqueue_data("file", self.get_file(file[0]))
             elif data_type == "delete_file":
                 del self._files[data]
             elif data_type == "chat":
                 chat_message = parse_chat_message(data)
-                self.conn.enqueue_message(chat_message)
                 self._chat_log.append(chat_message)
+                self.conn.enqueue_data("chat", chat_message)
             elif data_type == "changed_config":
                 change = data
                 if change['key'] == 'name':
@@ -417,20 +471,24 @@ class Room:
                         "unknown config key '{}'".format(
                             change['key']),
                         Warning)
+                self.conn.enqueue_data("config", self)
             elif data_type == "chat_name":
                 self.user.name = data
+                self.conn.enqueue_data("user", self.user)
             elif data_type == "owner":
                 self.owner = data['owner']
+                self.conn.enqueue_data("owner", self.owner)
             elif data_type == "fileinfo":
                 file = self._files[data['id']]
                 file.info = data.get(file.type)
             elif data_type in ("update_assets", "subscribed",
                                "hooks", "time", "login"):
-                pass
+                self.conn.enqueue_data(data_type, self)
             else:
                 warnings.warn(
                     "unknown data type '{}'".format(data_type),
                     Warning)
+        self.conn.process_queues()
 
     @property
     def chat_log(self):
