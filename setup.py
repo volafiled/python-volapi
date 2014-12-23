@@ -54,5 +54,5 @@ setup(
         'Programming Language :: Python :: 3 :: Only',
         'Topic :: Software Development :: Libraries :: Python Modules',
     ],
-    install_requires=['websocket-client', 'requests']
+    install_requires=[l.strip() for l in open("requirements.txt").readlines()]
 )

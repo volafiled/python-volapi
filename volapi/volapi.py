@@ -16,6 +16,7 @@ along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 '''
 # pylint: disable=bad-continuation
 
+import asyncio
 import json
 import os
 import random
@@ -25,16 +26,20 @@ import time
 import warnings
 
 import requests
-import websocket
 
 from collections import OrderedDict
 from collections import defaultdict
 from collections import namedtuple
+from functools import wraps
 from threading import Barrier
 from threading import Condition
 from threading import RLock
 from threading import Thread
 from threading import get_ident as get_thread_ident
+from urllib.parse import urlsplit
+
+from autobahn.asyncio.websocket import WebSocketClientFactory
+from autobahn.asyncio.websocket import WebSocketClientProtocol
 
 from .multipart import Data
 
@@ -46,6 +51,99 @@ BASE_REST_URL = BASE_URL + "/rest/"
 BASE_WS_URL = "wss://volafile.io/api/"
 EVENT_TYPES = ("chat", "file", "user_count", "config", "user", "owner",
                "update_assets", "subscribed", "hooks", "time", "login")
+
+
+def call_async(func):
+    """Decorates a function to be called async on the loop thread"""
+
+    @wraps(func)
+    def wrapper(self, *args, **kw):
+        """Wraps instance method to be called on loop thread"""
+        def call():
+            """Calls function on loop thread"""
+            # pylint: disable=star-args
+            func(self, *args, **kw)
+
+        self.loop.call_soon_threadsafe(call)
+    return wrapper
+
+
+def call_sync(func):
+    """Decorates a function to be called sync on the loop thread"""
+
+    @wraps(func)
+    def wrapper(self, *args, **kw):
+        """Wraps instance method to be called on loop thread"""
+        barrier = Barrier(2)
+        result = None
+        ex = None
+
+        def call():
+            """Calls function on loop thread"""
+            # pylint: disable=star-args,broad-except
+            nonlocal result, ex
+            try:
+                result = func(self, *args, **kw)
+            except Exception as exc:
+                ex = exc
+            barrier.wait()
+
+        self.loop.call_soon_threadsafe(call)
+        barrier.wait()
+        if ex:
+            raise ex or Exception("Unknown error")
+        return result
+    return wrapper
+
+
+class ListenerArbitrator:
+
+    """Manages the asyncio loop and thread"""
+
+    def __init__(self):
+        self.loop = None
+        barrier = Barrier(2)
+        self.thread = Thread(daemon=True, target=lambda: self._loop(barrier))
+        self.thread.start()
+        barrier.wait()
+
+    def _loop(self, barrier):
+        """Actual thread"""
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        barrier.wait()
+        self.loop.run_forever()
+
+    @call_sync
+    def create_connection(self, room, ws_url, agent):
+        """Creates a new connection"""
+        factory = WebSocketClientFactory(ws_url)
+        factory.useragent = agent
+        factory.protocol = lambda: room
+        ws_url = urlsplit(ws_url)
+        conn = self.loop.create_connection(factory,
+                                           host=ws_url.netloc,
+                                           port=ws_url.port or 443,
+                                           ssl=ws_url.scheme == "wss"
+                                           )
+        self.loop.create_task(conn)
+
+    @call_async
+    def send_message(self, conn, payload):
+        # pylint: disable=no-self-use
+        """Sends a message"""
+        if not isinstance(payload, bytes):
+            payload = payload.encode("utf-8")
+        conn.sendMessage(payload)
+
+    @call_async
+    def close(self, conn):
+        # pylint: disable=no-self-use
+        """Closes a connection"""
+        conn.sendClose()
+
+
+ARBITRATOR = ListenerArbitrator()
 
 
 def parse_chat_message(data):
@@ -133,66 +231,97 @@ class Listeners(namedtuple("Listeners", ("callbacks", "queue", "lock"))):
             return len(self.callbacks)
 
 
+class Protocol(WebSocketClientProtocol):
+
+    """Implements the websocket protocol"""
+
+    def __init__(self, conn):
+        self.condition = Condition()
+        self.conn = conn
+        self.connected = False
+        self.max_id = 0
+        self.send_count = 1
+
+    def onConnect(self, response):
+        self.connected = True
+
+    def onOpen(self):
+        while True:
+            yield from asyncio.sleep(self.conn.ping_interval)
+            self.conn.send_message("2")
+            self.conn.send_message("4" + to_json([self.max_id]))
+
+    def onMessage(self, new_data, binarybinary):
+        # pylint: disable=unused-argument
+        if not new_data:
+            return
+
+        if isinstance(new_data, bytes):
+            new_data = new_data.decode("utf-8")
+        self.conn.on_message(new_data)
+
+    def onClose(self, clean, code, reason):
+        # pylint: disable=unused-argument
+        self.connected = False
+        with self.condition:
+            self.condition.notify_all()
+
+
 class Connection(requests.Session):
 
     """Bundles a requests/websocket pair"""
 
-    def __init__(self):
+    def __init__(self, room):
         super().__init__()
+
+        self.room = room
 
         agent = "Volafile-API/{}".format(__version__)
 
         self.headers.update({"User-Agent": agent})
-
-        ws_url = ("{}?rn={}&EIO=3&transport=websocket&t={}".
-                  format(BASE_WS_URL, random_id(6),
-                         int(time.time() * 1000)))
-        self.websock = websocket.create_connection(
-            ws_url, header=["User-Agent: {}".format(agent)])
-
-        self.max_id = 0
-        self._send_count = 1
-
-    @property
-    def connected(self):
-        """Is connected"""
-        return self.websock.connected
-
-    def recv_message(self, *args, **kw):
-        """Receive a message"""
-        return self.websock.recv(*args, **kw)
-
-    def send_message(self, *args, **kw):
-        """Send a message"""
-        return self.websock.send(*args, **kw)
-
-    def make_call(self, fun, args):
-        """Makes a regular API call"""
-        obj = {"fn": fun, "args": args}
-        obj = [self.max_id, [[0, ["call", obj]], self._send_count]]
-        self.send_message("4" + to_json(obj))
-        self._send_count += 1
-
-    def close(self):
-        """Closes connection pair"""
-        self.websock.close()
-        super().close()
-
-
-class RoomConnection(Connection):
-
-    """Handles networking for a room."""
-
-    def __init__(self):
-        super().__init__()
-
-        self.condition = Condition()
 
         self.lock = RLock()
         self.listeners = defaultdict(lambda: defaultdict(Listeners))
         self.must_process = False
 
         self._ping_interval = 20  # default
+
+        ws_url = ("{}?rn={}&EIO=3&transport=websocket&t={}".
+                  format(BASE_WS_URL, random_id(6),
+                         int(time.time() * 1000)))
+        self.proto = Protocol(self)
+        ARBITRATOR.create_connection(self.proto, ws_url, agent)
+
+    @property
+    def ping_interval(self):
+        """Gets the ping interval"""
+        return self._ping_interval
+
+    @property
+    def connected(self):
+        """Connection state"""
+        return self.proto.connected
+
+    @property
+    def condition(self):
+        """Condition variable"""
+        return self.proto.condition
+
+    def send_message(self, payload):
+        """Send a message"""
+        ARBITRATOR.send_message(self.proto, payload)
+
+    def make_call(self, fun, args):
+        """Makes a regular API call"""
+        obj = {"fn": fun, "args": args}
+        obj = [self.proto.max_id, [[0, ["call", obj]], self.proto.send_count]]
+        self.send_message("4" + to_json(obj))
+        self.proto.send_count += 1
+
+    def close(self):
+        """Closes connection pair"""
+        ARBITRATOR.close(self.proto)
+        super().close()
 
     def subscribe(self, room_name, username, secret_key):
         """Make subscribe API call"""
@@ -207,6 +336,27 @@ class RoomConnection(Connection):
         obj = [-1, [[0, ["subscribe", subscribe_options]],
                     0]]
         self.send_message("4" + to_json(obj))
+
+    def on_message(self, new_data):
+        """Processes incoming messages"""
+        if new_data[0] == '0':
+            json_data = json.loads(new_data[1:])
+            self._ping_interval = float(
+                json_data['pingInterval']) / 1000
+            return
+
+        if new_data[0] == '1':
+            self.close()
+            return
+
+        if new_data[0] == '4':
+            json_data = json.loads(new_data[1:])
+            if isinstance(json_data, list) and len(json_data) > 1:
+                self.proto.max_id = int(json_data[1][-1])
+                self.room.add_data(json_data)
+                with self.condition:
+                    self.condition.notify_all()
+            return
 
     def _get_checksums(self, room_name):
         """Gets the main checksums"""
@@ -267,59 +417,6 @@ class RoomConnection(Connection):
                 if not sum(l.process() for l in listeners):
                     break
 
-    def listen_forever(self, room):
-        """Listens for new data about the room from the websocket
-        and updates given room state accordingly."""
-
-        barrier = Barrier(3)
-
-        def listen():
-            """Thread: Listen to incoming data"""
-            barrier.wait()
-            try:
-                while self.connected:
-                    new_data = self.recv_message()
-                    if not new_data:
-                        continue
-                    if new_data[0] == '0':
-                        json_data = json.loads(new_data[1:])
-                        self._ping_interval = float(
-                            json_data['pingInterval']) / 1000
-                    if new_data[0] == '1':
-                        self.close()
-                        break
-                    elif new_data[0] == '4':
-                        json_data = json.loads(new_data[1:])
-                        if isinstance(json_data, list) and len(json_data) > 1:
-                            self.max_id = int(json_data[1][-1])
-                            room.add_data(json_data)
-                            with self.condition:
-                                self.condition.notify_all()
-            finally:
-                try:
-                    self.close()
-                finally:
-                    # Notify that the listener is down now
-                    with self.condition:
-                        self.condition.notify_all()
-
-        def ping():
-            """Thread: ping the server in intervals"""
-            barrier.wait()
-            while self.connected:
-                try:
-                    self.send_message('2')
-                    msg = "4" + to_json([self.max_id])
-                    self.send_message(msg)
-                # pylint: disable=bare-except
-                except:
-                    break
-                time.sleep(self._ping_interval)
-
-        Thread(target=listen, daemon=True).start()
-        Thread(target=ping, daemon=True).start()
-        barrier.wait()
-
 
 class Room:
 
@@ -335,7 +432,7 @@ class Room:
         """name is the room name, if none then makes a new room
         user is your user name, if none then generates one for you"""
 
-        self.conn = RoomConnection()
+        self.conn = Connection(self)
 
         room_resp = None
         self.name = name
@@ -387,7 +484,6 @@ class Room:
 
         if subscribe:
             self.conn.subscribe(self.name, self.user.name, secret_key)
-            self.conn.listen_forever(self)
 
     def __repr__(self):
         return ("<Room({},{},connected={})>".
