@@ -102,6 +102,7 @@ class ListenerArbitrator:
 
     def __init__(self):
         self.loop = None
+        self.condition = Condition()
         barrier = Barrier(2)
         self.thread = Thread(daemon=True, target=lambda: self._loop(barrier))
         self.thread.start()
@@ -236,7 +237,6 @@ class Protocol(WebSocketClientProtocol):
     """Implements the websocket protocol"""
 
     def __init__(self, conn):
-        self.condition = Condition()
         self.conn = conn
         self.connected = False
         self.max_id = 0
@@ -263,8 +263,8 @@ class Protocol(WebSocketClientProtocol):
     def onClose(self, clean, code, reason):
         # pylint: disable=unused-argument
         self.connected = False
-        with self.condition:
-            self.condition.notify_all()
+        with ARBITRATOR.condition:
+            ARBITRATOR.condition.notify_all()
 
 
 class Connection(requests.Session):
@@ -301,11 +301,6 @@ class Connection(requests.Session):
     def connected(self):
         """Connection state"""
         return self.proto.connected
-
-    @property
-    def condition(self):
-        """Condition variable"""
-        return self.proto.condition
 
     def send_message(self, payload):
         """Send a message"""
@@ -354,8 +349,8 @@ class Connection(requests.Session):
             if isinstance(json_data, list) and len(json_data) > 1:
                 self.proto.max_id = int(json_data[1][-1])
                 self.room.add_data(json_data)
-                with self.condition:
-                    self.condition.notify_all()
+                with ARBITRATOR.condition:
+                    ARBITRATOR.condition.notify_all()
             return
 
     def _get_checksums(self, room_name):
@@ -392,8 +387,8 @@ class Connection(requests.Session):
         with self.lock:
             if not self.must_process:
                 return
-            with self.condition:
-                self.condition.notify_all()
+            with ARBITRATOR.condition:
+                ARBITRATOR.condition.notify_all()
             self.must_process = False
 
     @property
@@ -404,19 +399,26 @@ class Connection(requests.Session):
             return [l for m in self.listeners.values()
                     for (tid, l) in m.items() if tid == thread]
 
-    def listen(self):
-        """Listen for changes in all registered listeners."""
+    def validate_listeners(self):
+        """Validates that some listeners are actually registered"""
         listeners = self._listeners_for_thread
         if not sum(len(l) for l in listeners):
             raise ValueError("No active listeners")
-        with self.condition:
+
+    def listen(self):
+        """Listen for changes in all registered listeners."""
+        self.validate_listeners()
+        with ARBITRATOR.condition:
             while self.connected:
-                self.condition.wait()
-                with self.lock:
-                    listeners = self._listeners_for_thread
-                if not sum(l.process() for l in listeners):
+                ARBITRATOR.condition.wait()
+                if not self.run_queues():
                     break
 
+    def run_queues(self):
+        """Run all queues that have data queued"""
+        with self.lock:
+            listeners = self._listeners_for_thread
+        return sum(l.process() for l in listeners) > 0
 
 class Room:
 
@@ -628,8 +630,8 @@ class Room:
                     self._config['max_message']))
 
         while not self.user.name:
-            with self.conn.condition:
-                self.conn.condition.wait()
+            with ARBITRATOR.condition:
+                ARBITRATOR.condition.wait()
         if not me:
             self.conn.make_call("chat", [self.user.name, msg])
         else:
@@ -726,8 +728,8 @@ class Room:
         """Generates a new upload key"""
         # Wait for server to set username if not set already.
         while not self.user.name:
-            with self.conn.condition:
-                self.conn.condition.wait()
+            with ARBITRATOR.condition:
+                ARBITRATOR.condition.wait()
         info = json.loads(self.conn.get(BASE_REST_URL + "getUploadKey",
                                         params={"name": self.user.name,
                                                 "room": self.name}).text)
@@ -914,3 +916,15 @@ class User:
 
     def __repr__(self):
         return "<User({}, {})>".format(self.name, self.logged_in)
+
+def listen_many(*rooms):
+    """Listen for changes in all registered listeners in all specified rooms."""
+    rooms = set(r.conn for r in rooms)
+    for room in rooms:
+        room.validate_listeners()
+    with ARBITRATOR.condition:
+        while any(r.connected for r in rooms):
+            ARBITRATOR.condition.wait()
+            rooms = [r for r in rooms if r.run_queues()]
+            if not rooms:
+                return
