@@ -374,6 +374,10 @@ class Connection(requests.Session):
         thread = get_thread_ident()
         with self.lock:
             self.listeners[event_type][thread].add(callback)
+            if event_type == "file":
+                for file in self.room.files:
+                    self.enqueue_data(event_type, file)
+        self.process_queues()
 
     def enqueue_data(self, event_type, data):
         """Enqueue a data item for specific event type"""
