@@ -15,4 +15,4 @@ You should have received a copy of the GNU General Public License
 along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
-from .volapi import Room
+from .volapi import Room, listen_many

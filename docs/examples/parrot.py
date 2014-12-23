@@ -22,7 +22,8 @@ def listen(room):
 
     with Room(room) as r:
         r.user.change_nick("DumbParrot")
-        r.listen(onmessage=onmessage)
+        r.add_listener("chat", onmessage)
+        r.listen()
 
 if __name__ == "__main__":
     import sys

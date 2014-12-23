@@ -16,6 +16,7 @@ along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 '''
 # pylint: disable=bad-continuation
 
+import asyncio
 import json
 import os
 import random
@@ -23,12 +24,22 @@ import re
 import string
 import time
 import warnings
-from collections import deque, OrderedDict
 
 import requests
-import websocket
 
-from threading import Barrier, Condition, Thread
+from collections import OrderedDict
+from collections import defaultdict
+from collections import namedtuple
+from functools import wraps
+from threading import Barrier
+from threading import Condition
+from threading import RLock
+from threading import Thread
+from threading import get_ident as get_thread_ident
+from urllib.parse import urlsplit
+
+from autobahn.asyncio.websocket import WebSocketClientFactory
+from autobahn.asyncio.websocket import WebSocketClientProtocol
 
 from .multipart import Data
 
@@ -38,6 +49,102 @@ BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
 BASE_REST_URL = BASE_URL + "/rest/"
 BASE_WS_URL = "wss://volafile.io/api/"
+EVENT_TYPES = ("chat", "file", "user_count", "config", "user", "owner",
+               "update_assets", "subscribed", "hooks", "time", "login")
+
+
+def call_async(func):
+    """Decorates a function to be called async on the loop thread"""
+
+    @wraps(func)
+    def wrapper(self, *args, **kw):
+        """Wraps instance method to be called on loop thread"""
+        def call():
+            """Calls function on loop thread"""
+            # pylint: disable=star-args
+            func(self, *args, **kw)
+
+        self.loop.call_soon_threadsafe(call)
+    return wrapper
+
+
+def call_sync(func):
+    """Decorates a function to be called sync on the loop thread"""
+
+    @wraps(func)
+    def wrapper(self, *args, **kw):
+        """Wraps instance method to be called on loop thread"""
+        barrier = Barrier(2)
+        result = None
+        ex = None
+
+        def call():
+            """Calls function on loop thread"""
+            # pylint: disable=star-args,broad-except
+            nonlocal result, ex
+            try:
+                result = func(self, *args, **kw)
+            except Exception as exc:
+                ex = exc
+            barrier.wait()
+
+        self.loop.call_soon_threadsafe(call)
+        barrier.wait()
+        if ex:
+            raise ex or Exception("Unknown error")
+        return result
+    return wrapper
+
+
+class ListenerArbitrator:
+
+    """Manages the asyncio loop and thread"""
+
+    def __init__(self):
+        self.loop = None
+        self.condition = Condition()
+        barrier = Barrier(2)
+        self.thread = Thread(daemon=True, target=lambda: self._loop(barrier))
+        self.thread.start()
+        barrier.wait()
+
+    def _loop(self, barrier):
+        """Actual thread"""
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        barrier.wait()
+        self.loop.run_forever()
+
+    @call_sync
+    def create_connection(self, room, ws_url, agent):
+        """Creates a new connection"""
+        factory = WebSocketClientFactory(ws_url)
+        factory.useragent = agent
+        factory.protocol = lambda: room
+        ws_url = urlsplit(ws_url)
+        conn = self.loop.create_connection(factory,
+                                           host=ws_url.netloc,
+                                           port=ws_url.port or 443,
+                                           ssl=ws_url.scheme == "wss"
+                                           )
+        self.loop.create_task(conn)
+
+    @call_async
+    def send_message(self, conn, payload):
+        # pylint: disable=no-self-use
+        """Sends a message"""
+        if not isinstance(payload, bytes):
+            payload = payload.encode("utf-8")
+        conn.sendMessage(payload)
+
+    @call_async
+    def close(self, conn):
+        # pylint: disable=no-self-use
+        """Closes a connection"""
+        conn.sendClose()
+
+
+ARBITRATOR = ListenerArbitrator()
 
 
 def parse_chat_message(data):
@@ -91,65 +198,125 @@ def to_json(obj):
     return json.dumps(obj, separators=(',', ':'))
 
 
+class Listeners(namedtuple("Listeners", ("callbacks", "queue", "lock"))):
+
+    """Collection of Listeners"""
+
+    def __new__(cls):
+        return super().__new__(cls, list(), list(), RLock())
+
+    def process(self):
+        """Process queue for these listeners"""
+        with self.lock:
+            for item in self.queue:
+                callbacks = [c for c in self.callbacks
+                             if c(item) is not False]
+                self.callbacks.clear()
+                self.callbacks.extend(callbacks)
+            self.queue.clear()
+            return len(self.callbacks)
+
+    def add(self, callback):
+        """Add a new listener"""
+        with self.lock:
+            self.callbacks.append(callback)
+
+    def enqueue(self, item):
+        """Queue a new data item"""
+        with self.lock:
+            self.queue.append(item)
+
+    def __len__(self):
+        """Return number of listeners in collection"""
+        with self.lock:
+            return len(self.callbacks)
+
+
+class Protocol(WebSocketClientProtocol):
+
+    """Implements the websocket protocol"""
+
+    def __init__(self, conn):
+        self.conn = conn
+        self.connected = False
+        self.max_id = 0
+        self.send_count = 1
+
+    def onConnect(self, response):
+        self.connected = True
+
+    def onOpen(self):
+        while True:
+            yield from asyncio.sleep(self.conn.ping_interval)
+            self.conn.send_message("2")
+            self.conn.send_message("4" + to_json([self.max_id]))
+
+    def onMessage(self, new_data, binarybinary):
+        # pylint: disable=unused-argument
+        if not new_data:
+            return
+
+        if isinstance(new_data, bytes):
+            new_data = new_data.decode("utf-8")
+        self.conn.on_message(new_data)
+
+    def onClose(self, clean, code, reason):
+        # pylint: disable=unused-argument
+        self.connected = False
+        with ARBITRATOR.condition:
+            ARBITRATOR.condition.notify_all()
+
+
 class Connection(requests.Session):
 
     """Bundles a requests/websocket pair"""
 
-    def __init__(self):
+    def __init__(self, room):
         super().__init__()
+
+        self.room = room
 
         agent = "Volafile-API/{}".format(__version__)
 
         self.headers.update({"User-Agent": agent})
 
+        self.lock = RLock()
+        self.listeners = defaultdict(lambda: defaultdict(Listeners))
+        self.must_process = False
+
+        self._ping_interval = 20  # default
+
         ws_url = ("{}?rn={}&EIO=3&transport=websocket&t={}".
                   format(BASE_WS_URL, random_id(6),
                          int(time.time() * 1000)))
-        self.websock = websocket.create_connection(
-            ws_url, header=["User-Agent: {}".format(agent)])
+        self.proto = Protocol(self)
+        ARBITRATOR.create_connection(self.proto, ws_url, agent)
 
-        self.max_id = 0
-        self._send_count = 1
+    @property
+    def ping_interval(self):
+        """Gets the ping interval"""
+        return self._ping_interval
 
     @property
     def connected(self):
-        """Is connected"""
-        return self.websock.connected
+        """Connection state"""
+        return self.proto.connected
 
-    def recv_message(self, *args, **kw):
-        """Receive a message"""
-        return self.websock.recv(*args, **kw)
-
-    def send_message(self, *args, **kw):
+    def send_message(self, payload):
         """Send a message"""
-        return self.websock.send(*args, **kw)
+        ARBITRATOR.send_message(self.proto, payload)
 
     def make_call(self, fun, args):
         """Makes a regular API call"""
         obj = {"fn": fun, "args": args}
-        obj = [self.max_id, [[0, ["call", obj]], self._send_count]]
+        obj = [self.proto.max_id, [[0, ["call", obj]], self.proto.send_count]]
         self.send_message("4" + to_json(obj))
-        self._send_count += 1
+        self.proto.send_count += 1
 
     def close(self):
         """Closes connection pair"""
-        self.websock.close()
+        ARBITRATOR.close(self.proto)
         super().close()
-
-
-class RoomConnection(Connection):
-
-    """Handles networking for a room."""
-
-    def __init__(self):
-        super().__init__()
-
-        self.condition = Condition()
-
-        self._file_queue = deque()
-        self._message_queue = deque()
-
-        self._ping_interval = 20  # default
 
     def subscribe(self, room_name, username, secret_key):
         """Make subscribe API call"""
@@ -165,6 +332,27 @@ class RoomConnection(Connection):
                     0]]
         self.send_message("4" + to_json(obj))
 
+    def on_message(self, new_data):
+        """Processes incoming messages"""
+        if new_data[0] == '0':
+            json_data = json.loads(new_data[1:])
+            self._ping_interval = float(
+                json_data['pingInterval']) / 1000
+            return
+
+        if new_data[0] == '1':
+            self.close()
+            return
+
+        if new_data[0] == '4':
+            json_data = json.loads(new_data[1:])
+            if isinstance(json_data, list) and len(json_data) > 1:
+                self.proto.max_id = int(json_data[1][-1])
+                self.room.add_data(json_data)
+                with ARBITRATOR.condition:
+                    ARBITRATOR.condition.notify_all()
+            return
+
     def _get_checksums(self, room_name):
         """Gets the main checksums"""
         try:
@@ -178,102 +366,63 @@ class RoomConnection(Connection):
         except Exception:
             raise IOError("Failed to get checksums")
 
-    def enqueue_file(self, file_id):
-        """Enqueues a file id so listeners can see the file."""
-        self._file_queue.appendleft(file_id)
+    def add_listener(self, event_type, callback):
+        """Add a listener for specific event type.
+        You'll need to actually listen for changes using the listen method"""
+        if event_type not in EVENT_TYPES:
+            raise ValueError("Invalid event type: {}".format(event_type))
+        thread = get_thread_ident()
+        with self.lock:
+            self.listeners[event_type][thread].add(callback)
+            if event_type == "file":
+                for file in self.room.files:
+                    self.enqueue_data(event_type, file)
+        self.process_queues()
 
-    def enqueue_message(self, msg):
-        """Enqueues a ChatMessage so listeners can see it."""
-        self._message_queue.appendleft(msg)
+    def enqueue_data(self, event_type, data):
+        """Enqueue a data item for specific event type"""
+        with self.lock:
+            for listener in self.listeners[event_type].values():
+                listener.enqueue(data)
+                self.must_process = True
 
-    def listen(self, room, onmessage=None, onfile=None, onusercount=None):
-        """Listen for incoming events for the given room.
-        You need to at least provide one of the possible listener functions.
-        You can detach a listener by returning False (exactly, not just a
-        false-y value).
-        The function will not return unless all listeners are detached again or
-        the WebSocket connection is closed.
-        """
-        if not onmessage and not onfile and not onusercount:
-            raise ValueError("At least one of onmessage, onfile, onusercount "
-                             "must be specified")
-        last_user = 0
-        with self.condition:
-            while self.connected and (onmessage or onfile or onusercount):
-                while ((not self._message_queue or not onmessage) and
-                       (not self._file_queue or not onfile) and
-                       (room.user_count == last_user or not onusercount) and
-                       self.connected):
-                    self.condition.wait()
+    def process_queues(self):
+        """Process queues if any have data queued"""
+        with self.lock:
+            if not self.must_process:
+                return
+            with ARBITRATOR.condition:
+                ARBITRATOR.condition.notify_all()
+            self.must_process = False
 
-                if onusercount and room.user != last_user:
-                    if onusercount(room.user_count) is False:
-                        # detach
-                        onusercount = None
+    @property
+    def _listeners_for_thread(self):
+        """All Listeners for the current thread"""
+        thread = get_thread_ident()
+        with self.lock:
+            return [l for m in self.listeners.values()
+                    for (tid, l) in m.items() if tid == thread]
 
-                while onfile and self._file_queue:
-                    if onfile(room.get_file(self._file_queue.pop())) is False:
-                        # detach
-                        onfile = None
+    def validate_listeners(self):
+        """Validates that some listeners are actually registered"""
+        listeners = self._listeners_for_thread
+        if not sum(len(l) for l in listeners):
+            raise ValueError("No active listeners")
 
-                while onmessage and self._message_queue:
-                    if onmessage(self._message_queue.pop()) is False:
-                        # detach
-                        onmessage = None
-
-    def listen_forever(self, room):
-        """Listens for new data about the room from the websocket
-        and updates given room state accordingly."""
-
-        barrier = Barrier(3)
-
-        def listen():
-            """Thread: Listen to incoming data"""
-            barrier.wait()
-            try:
-                while self.connected:
-                    new_data = self.recv_message()
-                    if not new_data:
-                        continue
-                    if new_data[0] == '0':
-                        json_data = json.loads(new_data[1:])
-                        self._ping_interval = float(
-                            json_data['pingInterval']) / 1000
-                    if new_data[0] == '1':
-                        self.close()
-                        break
-                    elif new_data[0] == '4':
-                        json_data = json.loads(new_data[1:])
-                        if isinstance(json_data, list) and len(json_data) > 1:
-                            self.max_id = int(json_data[1][-1])
-                            room.add_data(json_data)
-                            with self.condition:
-                                self.condition.notify_all()
-            finally:
-                try:
-                    self.close()
-                finally:
-                    # Notify that the listener is down now
-                    with self.condition:
-                        self.condition.notify_all()
-
-        def ping():
-            """Thread: ping the server in intervals"""
-            barrier.wait()
+    def listen(self):
+        """Listen for changes in all registered listeners."""
+        self.validate_listeners()
+        with ARBITRATOR.condition:
             while self.connected:
-                try:
-                    self.send_message('2')
-                    msg = "4" + to_json([self.max_id])
-                    self.send_message(msg)
-                # pylint: disable=bare-except
-                except:
+                ARBITRATOR.condition.wait()
+                if not self.run_queues():
                     break
-                time.sleep(self._ping_interval)
 
-        Thread(target=listen, daemon=True).start()
-        Thread(target=ping, daemon=True).start()
-        barrier.wait()
-
+    def run_queues(self):
+        """Run all queues that have data queued"""
+        with self.lock:
+            listeners = self._listeners_for_thread
+        return sum(l.process() for l in listeners) > 0
 
 class Room:
 
@@ -289,7 +438,7 @@ class Room:
         """name is the room name, if none then makes a new room
         user is your user name, if none then generates one for you"""
 
-        self.conn = RoomConnection()
+        self.conn = Connection(self)
 
         room_resp = None
         self.name = name
@@ -341,7 +490,6 @@ class Room:
 
         if subscribe:
             self.conn.subscribe(self.name, self.user.name, secret_key)
-            self.conn.listen_forever(self)
 
     def __repr__(self):
         return ("<Room({},{},connected={})>".
@@ -364,15 +512,22 @@ class Room:
             raise ValueError("No file with id {}".format(file_id))
         return self._files[file_id]
 
+    def add_listener(self, event_type, callback):
+        """Add a listener for specific event type.
+        You'll need to actually listen for changes using the listen method"""
+        return self.conn.add_listener(event_type, callback)
+
     def listen(self, onmessage=None, onfile=None, onusercount=None):
-        """Listen for incoming events.
-        You need to at least provide one of the possible listener functions.
-        You can detach a listener by returning False (exactly, not just a
-        false-y value).
-        The function will not return unless all listeners are detached again or
-        the WebSocket connection is closed.
-        """
-        self.conn.listen(self, onmessage, onfile, onusercount)
+        """Listen for changes in all registered listeners.
+        Please note that the on* arguments are present solely for legacy
+        purposes. New code should use add_listener."""
+        if onmessage:
+            self.add_listener("chat", onmessage)
+        if onfile:
+            self.add_listener("file", onfile)
+        if onusercount:
+            self.add_listener("user_count", onusercount)
+        return self.conn.listen()
 
     def add_data(self, data):
         """Add data to given room's state"""
@@ -385,10 +540,10 @@ class Room:
                 data = dict()
             if data_type == "user_count":
                 self._user_count = data
+                self.conn.enqueue_data("user_count", self._user_count)
             elif data_type == "files":
                 files = data['files']
                 for file in files:
-                    self.conn.enqueue_file(file[0])
                     self._files[file[0]] = File(file[0],  # id
                                                 file[1],  # name
                                                 file[2],  # type
@@ -396,12 +551,13 @@ class Room:
                                                 file[4] / 1000,  # expire time
                                                 file[6]['user'])
                     self.conn.make_call("get_fileinfo", [file[0]])
+                    self.conn.enqueue_data("file", self.get_file(file[0]))
             elif data_type == "delete_file":
                 del self._files[data]
             elif data_type == "chat":
                 chat_message = parse_chat_message(data)
-                self.conn.enqueue_message(chat_message)
                 self._chat_log.append(chat_message)
+                self.conn.enqueue_data("chat", chat_message)
             elif data_type == "changed_config":
                 change = data
                 if change['key'] == 'name':
@@ -417,20 +573,24 @@ class Room:
                         "unknown config key '{}'".format(
                             change['key']),
                         Warning)
+                self.conn.enqueue_data("config", self)
             elif data_type == "chat_name":
                 self.user.name = data
+                self.conn.enqueue_data("user", self.user)
             elif data_type == "owner":
                 self.owner = data['owner']
+                self.conn.enqueue_data("owner", self.owner)
             elif data_type == "fileinfo":
                 file = self._files[data['id']]
                 file.info = data.get(file.type)
             elif data_type in ("update_assets", "subscribed",
                                "hooks", "time", "login"):
-                pass
+                self.conn.enqueue_data(data_type, self)
             else:
                 warnings.warn(
                     "unknown data type '{}'".format(data_type),
                     Warning)
+        self.conn.process_queues()
 
     @property
     def chat_log(self):
@@ -474,8 +634,8 @@ class Room:
                     self._config['max_message']))
 
         while not self.user.name:
-            with self.conn.condition:
-                self.conn.condition.wait()
+            with ARBITRATOR.condition:
+                ARBITRATOR.condition.wait()
         if not me:
             self.conn.make_call("chat", [self.user.name, msg])
         else:
@@ -572,8 +732,8 @@ class Room:
         """Generates a new upload key"""
         # Wait for server to set username if not set already.
         while not self.user.name:
-            with self.conn.condition:
-                self.conn.condition.wait()
+            with ARBITRATOR.condition:
+                ARBITRATOR.condition.wait()
         info = json.loads(self.conn.get(BASE_REST_URL + "getUploadKey",
                                         params={"name": self.user.name,
                                                 "room": self.name}).text)
@@ -760,3 +920,15 @@ class User:
 
     def __repr__(self):
         return "<User({}, {})>".format(self.name, self.logged_in)
+
+def listen_many(*rooms):
+    """Listen for changes in all registered listeners in all specified rooms."""
+    rooms = set(r.conn for r in rooms)
+    for room in rooms:
+        room.validate_listeners()
+    with ARBITRATOR.condition:
+        while any(r.connected for r in rooms):
+            ARBITRATOR.condition.wait()
+            rooms = [r for r in rooms if r.run_queues()]
+            if not rooms:
+                return
