@@ -648,12 +648,17 @@ class Room:
         You may specify upload_as to change the name it is uploaded as.
         You can also specify a blocksize and a callback if you wish.
         Returns the file's id on success and None on failure."""
-        if os.stat(filename).st_size > self._config['max_file']:
-            raise ValueError(
-                "File must be at most {} GB".format(
-                    self._config['max_file'] >> 30))
         file = filename if hasattr(filename, "read") else open(filename, 'rb')
         filename = upload_as or os.path.split(filename)[1]
+        try:
+            file.seek(0, 2)
+            if file.tell() > self._config['max_file']:
+                raise ValueError(
+                    "File must be at most {} GB".format(
+                        self._config['max_file'] >> 30))
+        finally:
+            try: file.seek(0)
+            except: pass
 
         files = Data({'file': {"name": filename, "value": file}},
                      blocksize=blocksize,
