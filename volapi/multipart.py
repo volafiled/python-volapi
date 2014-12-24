@@ -147,7 +147,7 @@ class Data(object):
         """All headers needed to make a request"""
         return {"Content-Type": ("multipart/form-data; boundary={}".
                                  format(self.boundary)),
-                "Content-Length": str(len(self)),
+                "Content-Length": str(self.__len__()),
                 "Content-Encoding": self.encoding
                }
 
@@ -155,7 +155,7 @@ class Data(object):
         with self:
             total = None
             if self.callback:
-                total = len(self)
+                total = self.__len__()
             pos = 0
             remainder = self.blocksize
             buf = BytesIO()
