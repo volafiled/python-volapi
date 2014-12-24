@@ -20,6 +20,7 @@ import time
 
 from volapi import Room
 
+ROOM = Room()
 
 class TestVolapi(unittest.TestCase):
 
@@ -51,12 +52,12 @@ class TestVolapi(unittest.TestCase):
                 if self.recv_index == 3:
                     return False
 
-        for send_index in range(1, 3):
+        ROOM.add_listener("chat", compare_chat)
+        for send_index in range(1, 4):
             ROOM.post_chat("TEST123" + str(send_index))
-            send_index += 1
             time.sleep(1)
 
-        ROOM.listen(onmessage=compare_chat)
+        ROOM.listen()
 
     def test_files(self):
         """Test uploading and looking at files."""
@@ -118,5 +119,4 @@ class TestVolapi(unittest.TestCase):
             beepi.listen(onusercount=check_users)
 
 if __name__ == "__main__":
-    ROOM = Room()
     unittest.main()

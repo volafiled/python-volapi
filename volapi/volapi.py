@@ -127,7 +127,7 @@ class ListenerArbitrator:
                                            port=ws_url.port or 443,
                                            ssl=ws_url.scheme == "wss"
                                            )
-        self.loop.create_task(conn)
+        asyncio.async(conn, loop=self.loop)
 
     @call_async
     def send_message(self, conn, payload):
