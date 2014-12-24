@@ -20,7 +20,7 @@ Basic
     
     # beepi will close at the end of this scope
     with Room("BEEPi", "ptc") as beepi:
-        # login using a password
+        # optional login using a password
         beepi.user.login("hunter2")
         # Upload a file under a new filename and save the id
         id = beepi.upload_file("images/disgusted.jpg", upload_as="mfw.jpg")
@@ -33,11 +33,33 @@ Basic
 Listening
 ~~~~~~~~~~
 
+Some basic trolling can be archieved with just a few lines of code.
+
 .. code-block:: python
 
-    with Room("BEEPi", "Stallman") as room:
+    from volapi import Room, listen_many
+
+    with Room("BEEPi", "Stallman") as BEEPi:
         def interject(msg):
-            if "linux" in msg.msg.lower():
+            if "linux" in msg.msg.lower() and msg.nick != room.user.name:
                 room.post_chat("Don't you mean GNU/Linux?")
-        room.add_listener("chat", interject)
-        room.listen()
+        BEEPi.add_listener("chat", interject)
+        BEEPi.listen()
+
+You can troll more than one room in parallel:
+
+.. code-block:: python
+
+    from functools import partial
+    from volapi import Room, listen_many
+
+    with Room("BEEPi", "Stallman") as BEEPi, Room("HvoXwS", "Popman") as HvoXwS:
+        def interjectBEEPi(msg, room):
+            if "linux" in msg.msg.lower() and msg.nick != room.user.name:
+                room.post_chat("Don't you mean GNU/Linux?")
+        def interjectHvoXwS(msg, room):
+            if "hollywood" in msg.msg.lower() and msg.nick != room.user.name:
+                room.post_chat("Don't you mean GNU/Hollywood?")
+        BEEPi.add_listener("chat", partial(interjectBEEPi, room=BEEPi))
+        HvoXwS.add_listener("chat", partial(interjectHvoXwS, room=HvoXwS))
+        listen_many(BEEPi, HvoXwS)

@@ -477,7 +477,7 @@ class Room:
             self._config['session_lifetime'] = config['session_lifetime']
 
         except Exception:
-            raise IOError("Failed to get room config")
+            raise IOError("Failed to get room config for {}".format(self.name))
 
         if not subscribe and not user:
             user = random_id(6)
