@@ -20,6 +20,7 @@ along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 import collections
 import json
 import os
+import sys
 import uuid
 
 from io import BytesIO
@@ -130,7 +131,13 @@ class Data(object):
         self.streams.append(BytesIO("--{}--\r\n".
                                     format(self.boundary).encode(encoding)))
 
-    def __len__(self):
+    @property
+    def len(self):
+        """Length of the data stream"""
+        # The len property is needed for requests.
+        # requests checks __len__, then len
+        # Since we cannot implement __len__ because python 32-bit uses 32-bit
+        # sizes, we implement this instead.
         def stream_len(stream):
             """Stream length"""
             cur = stream.tell()
@@ -147,7 +154,7 @@ class Data(object):
         """All headers needed to make a request"""
         return {"Content-Type": ("multipart/form-data; boundary={}".
                                  format(self.boundary)),
-                "Content-Length": str(self.__len__()),
+                "Content-Length": str(self.len),
                 "Content-Encoding": self.encoding
                }
 
@@ -155,7 +162,7 @@ class Data(object):
         with self:
             total = None
             if self.callback:
-                total = self.__len__()
+                total = self.len
             pos = 0
             remainder = self.blocksize
             buf = BytesIO()
@@ -208,7 +215,6 @@ class Data(object):
 
 if __name__ == "__main__":
     import requests
-    import sys
 
     def my_callback(cur, tot):
         """multipart callback"""
