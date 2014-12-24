@@ -17,6 +17,7 @@ along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 
 import unittest
 import time
+from threading import Thread
 
 from volapi import Room
 
@@ -27,16 +28,6 @@ class TestVolapi(unittest.TestCase):
     """Main testing suite for volapi"""
 
     recv_index = 1
-
-    def test_user_count(self):
-        """Make sure there is 1 user (you) in room"""
-        def compare_user_count(count):
-            # pylint: disable=missing-docstring
-            self.assertEqual(ROOM.user_count, count)
-            self.assertEqual(1, count)
-            return False
-
-        ROOM.listen(onusercount=compare_user_count)
 
     def test_chat_log(self):
         """Make sure chatlog is the same as recieved chats and they
@@ -52,12 +43,11 @@ class TestVolapi(unittest.TestCase):
                 if self.recv_index == 3:
                     return False
 
-        ROOM.add_listener("chat", compare_chat)
+        Thread(daemon=True, target=lambda:ROOM.add_listener("chat", compare_chat) or ROOM.listen()).start()
+
         for send_index in range(1, 4):
             ROOM.post_chat("TEST123" + str(send_index))
             time.sleep(1)
-
-        ROOM.listen()
 
     def test_files(self):
         """Test uploading and looking at files."""
@@ -69,8 +59,8 @@ class TestVolapi(unittest.TestCase):
             self.assertEqual(file, ROOM.get_file(file.id))
             return False
 
+        Thread(daemon=True, target=lambda:ROOM.add_listener("file", compare_file) or ROOM.listen()).start()
         ROOM.upload_file(__file__, upload_as="test.py")
-        ROOM.listen(onfile=compare_file)
 
     def test_user_change_nick(self):
         """Make sure nickname changes correctly"""
@@ -82,8 +72,7 @@ class TestVolapi(unittest.TestCase):
                 self.assertEqual(ROOM.user.name, "newnick")
                 return False
 
-        ROOM.user.change_nick("newnick")
-        ROOM.listen(onmessage=compare_nick)
+        Thread(daemon=True, target=lambda:ROOM.add_listener("chat", compare_nick) or ROOM.listen()).start()
 
     def test_get_user_stats(self):
         """Test inquires about registered users"""
@@ -116,7 +105,8 @@ class TestVolapi(unittest.TestCase):
                 # pylint: disable=missing-docstring
                 self.assertGreater(usercount, 1)
                 return False
-            beepi.listen(onusercount=check_users)
+            beepi.add_listener("user_count", check_users)
+            beepi.listen()
 
 if __name__ == "__main__":
     unittest.main()
