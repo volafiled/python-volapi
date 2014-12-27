@@ -180,7 +180,7 @@ def parse_chat_message(data):
 
     chat_message = ChatMessage(nick, msg, files, rooms,
                                logged_in=user,
-                               donator=donator,
+                               donor=donator,
                                admin=admin)
     return chat_message
 
