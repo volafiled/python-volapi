@@ -567,7 +567,7 @@ class Room:
                 elif change['key'] == 'private':
                     self._config['private'] = change['value']
                 elif change['key'] == 'motd':
-                    self._config['motd'] = change['value']
+                    self._config['motd'] = change.get('value') or ""
                 else:
                     warnings.warn(
                         "unknown config key '{}'".format(
