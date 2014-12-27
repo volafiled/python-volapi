@@ -43,7 +43,7 @@ from autobahn.asyncio.websocket import WebSocketClientProtocol
 
 from .multipart import Data
 
-__version__ = "0.9.8"
+__version__ = "0.10"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -424,6 +424,7 @@ class Connection(requests.Session):
             listeners = self._listeners_for_thread
         return sum(l.process() for l in listeners) > 0
 
+
 class Room:
 
     """ Use this to interact with a room as a user
@@ -657,8 +658,11 @@ class Room:
                     "File must be at most {} GB".format(
                         self._config['max_file'] >> 30))
         finally:
-            try: file.seek(0)
-            except: pass
+            try:
+                file.seek(0)
+            # pylint: disable=bare-except
+            except:
+                pass
 
         files = Data({'file': {"name": filename, "value": file}},
                      blocksize=blocksize,
@@ -926,8 +930,9 @@ class User:
     def __repr__(self):
         return "<User({}, {})>".format(self.name, self.logged_in)
 
+
 def listen_many(*rooms):
-    """Listen for changes in all registered listeners in all specified rooms."""
+    """Listen for changes in all registered listeners in all specified rooms"""
     rooms = set(r.conn for r in rooms)
     for room in rooms:
         room.validate_listeners()
