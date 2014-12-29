@@ -31,10 +31,12 @@ from collections import OrderedDict
 from collections import defaultdict
 from collections import namedtuple
 from functools import wraps
+from functools import partial
 from threading import Barrier
 from threading import Condition
 from threading import RLock
 from threading import Thread
+from threading import Event
 from threading import get_ident as get_thread_ident
 from urllib.parse import urlsplit
 
@@ -135,7 +137,8 @@ class ListenerArbitrator:
         """Sends a message"""
         if not isinstance(payload, bytes):
             payload = payload.encode("utf-8")
-        conn.sendMessage(payload)
+        if conn.connected:
+            conn.sendMessage(payload)
 
     @call_async
     def close(self, conn):
@@ -533,6 +536,7 @@ class Room:
     def add_data(self, data):
         """Add data to given room's state"""
         # pylint: disable=too-many-branches
+        # pylint: disable=too-many-statements
         for item in data[1:]:
             data_type = item[0][1][0]
             try:
@@ -545,14 +549,18 @@ class Room:
             elif data_type == "files":
                 files = data['files']
                 for file in files:
-                    self._files[file[0]] = File(file[0],  # id
-                                                file[1],  # name
-                                                file[2],  # type
-                                                file[3],  # size
-                                                file[4] / 1000,  # expire time
-                                                file[6]['user'])
-                    self.conn.make_call("get_fileinfo", [file[0]])
-                    self.conn.enqueue_data("file", self.get_file(file[0]))
+                    file = File(file[0],  # id
+                                file[1],  # name
+                                file[2],  # type
+                                file[3],  # size
+                                file[4] / 1000,  # expire time
+                                file[6]['user'])
+                    self._files[file.id] = file
+                    self.conn.enqueue_data("file", file)
+                    file.download_info = partial(
+                        file.download_info,
+                        conn=self.conn)
+                    file.event = Event()
             elif data_type == "delete_file":
                 del self._files[data]
             elif data_type == "chat":
@@ -584,6 +592,8 @@ class Room:
             elif data_type == "fileinfo":
                 file = self._files[data['id']]
                 file.info = data.get(file.type)
+                file.event.set()
+                del file.event
             elif data_type in ("update_assets", "subscribed",
                                "hooks", "time", "login"):
                 self.conn.enqueue_data(data_type, self)
@@ -776,6 +786,7 @@ class File:
     method to retrieve the file's URL."""
     # pylint: disable=invalid-name
     # pylint: disable=too-many-arguments
+    # pylint: disable=too-many-instance-attributes
 
     def __init__(
             self,
@@ -792,7 +803,8 @@ class File:
         self.size = size
         self.expire_time = expire_time
         self.uploader = uploader
-        self.info = None
+        self._info = None
+        self.event = None
 
     @property
     def url(self):
@@ -834,6 +846,23 @@ class File:
     def __repr__(self):
         return ("<File({},{},{},{})>".
                 format(self.id, self.size, self.uploader, self.name))
+
+    @property
+    def info(self):
+        """Returns info about the file"""
+        if not self._info:
+            self.download_info()
+            self.event.wait()
+        return self._info
+
+    @info.setter
+    def info(self, val):
+        """Sets the value of info"""
+        self._info = val
+
+    def download_info(self, conn):
+        """Asks the server for the file info"""
+        conn.make_call("get_fileinfo", [self.id])
 
 
 class User:
