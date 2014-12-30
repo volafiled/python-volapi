@@ -1,3 +1,4 @@
 include LICENSE
 include *.rst
 include docs/examples/*.py
+include requirements.txt
