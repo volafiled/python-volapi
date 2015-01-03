@@ -21,7 +21,17 @@ from threading import Thread
 
 from volapi import Room
 
+
+def new_thread_listen(event_type, func):
+    """Starts a new thread for listening"""
+    Thread(
+        daemon=True,
+        target=lambda: ROOM.add_listener(
+            event_type,
+            func) or ROOM.listen()).start()
+
 ROOM = Room()
+
 
 class TestVolapi(unittest.TestCase):
 
@@ -43,7 +53,7 @@ class TestVolapi(unittest.TestCase):
                 if self.recv_index == 3:
                     return False
 
-        Thread(daemon=True, target=lambda:ROOM.add_listener("chat", compare_chat) or ROOM.listen()).start()
+        new_thread_listen("chat", compare_chat)
 
         for send_index in range(1, 4):
             ROOM.post_chat("TEST123" + str(send_index))
@@ -59,7 +69,7 @@ class TestVolapi(unittest.TestCase):
             self.assertEqual(file, ROOM.get_file(file.id))
             return False
 
-        Thread(daemon=True, target=lambda:ROOM.add_listener("file", compare_file) or ROOM.listen()).start()
+        new_thread_listen("file", compare_file)
         ROOM.upload_file(__file__, upload_as="test.py")
 
     def test_user_change_nick(self):
@@ -72,7 +82,8 @@ class TestVolapi(unittest.TestCase):
                 self.assertEqual(ROOM.user.name, "newnick")
                 return False
 
-        Thread(daemon=True, target=lambda:ROOM.add_listener("chat", compare_nick) or ROOM.listen()).start()
+        new_thread_listen("chat", compare_nick)
+        ROOM.user.change_nick("newnick")
 
     def test_get_user_stats(self):
         """Test inquires about registered users"""
@@ -82,25 +93,43 @@ class TestVolapi(unittest.TestCase):
     def test_room_title(self):
         """Test setting and getting room's title"""
         self.assertTrue(ROOM.owner)
+
+        def check_title(room):
+                # pylint: disable=missing-docstring
+            self.assertEqual("titlechange", room.title)
+            return False
         self.assertEqual("New Room", ROOM.title)
+        new_thread_listen("config", check_title)
         ROOM.set_title("titlechange")
         self.assertEqual("titlechange", ROOM.title)
 
     def test_private(self):
         """Test setting and getting room's privacy"""
         self.assertEqual(True, ROOM.private)
+
+        def check_priv(room):
+                # pylint: disable=missing-docstring
+            self.assertFalse(room.private)
+            return False
+        new_thread_listen("config", check_priv)
         ROOM.set_private(False)
         self.assertEqual(False, ROOM.private)
 
     def test_motd(self):
         """Test setting and getting room's MOTD"""
         self.assertEqual("", ROOM.motd)
+
+        def check_motd(room):
+                # pylint: disable=missing-docstring
+            self.assertEqual("new motd", room.motd)
+            return False
+        new_thread_listen("config", check_motd)
         ROOM.set_motd("new motd")
         self.assertEqual("new motd", ROOM.motd)
 
     def test_beepi(self):
         """Make sure BEEPi can open"""
-        with Room("BEEPi") as beepi:
+        with Room("BEEPi", "ptc") as beepi:
             def check_users(usercount):
                 # pylint: disable=missing-docstring
                 self.assertGreater(usercount, 1)
