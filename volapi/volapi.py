@@ -538,7 +538,10 @@ class Room:
         # pylint: disable=too-many-branches
         # pylint: disable=too-many-statements
         for item in data[1:]:
-            data_type = item[0][1][0]
+            try:
+                data_type = item[0][1][0]
+            except IndexError:
+                data_type = None
             try:
                 data = item[0][1][1]
             except ValueError:
