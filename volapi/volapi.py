@@ -45,7 +45,7 @@ from autobahn.asyncio.websocket import WebSocketClientProtocol
 
 from .multipart import Data
 
-__version__ = "0.11.2"
+__version__ = "0.11.3"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -477,7 +477,12 @@ class Room:
             self._config['max_message'] = config['max_message_length']
             max_nick = config['max_alias_length']
             self._config['max_file'] = config['file_max_size']
-            self._config['ttl'] = config['file_time_to_live']
+            self._config['ttl'] = config.get('file_ttl')
+            if self._config['ttl'] is None:
+                self._config['ttl'] = config['file_time_to_live']
+            else:
+                # convert hours to seconds
+                self._config['ttl'] *= 3600
             self._config['session_lifetime'] = config['session_lifetime']
 
         except Exception:
@@ -575,7 +580,7 @@ class Room:
                 if change['key'] == 'name':
                     self._config['title'] = change['value']
                 elif change['key'] == 'file_ttl':
-                    self._config['ttl'] = change['value']
+                    self._config['ttl'] = change['value'] * 3600
                 elif change['key'] == 'private':
                     self._config['private'] = change['value']
                 elif change['key'] == 'motd':
