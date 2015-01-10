@@ -45,7 +45,7 @@ from autobahn.asyncio.websocket import WebSocketClientProtocol
 
 from .multipart import Data
 
-__version__ = "0.11.3"
+__version__ = "0.12"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -707,6 +707,10 @@ class Room:
         """Close connection to this room"""
         if self.connected:
             self.conn.close()
+
+    def report(self):
+        """Reports this room to moderators"""
+        self.conn.make_call("submitReport", [{}])
 
     @property
     def title(self):
