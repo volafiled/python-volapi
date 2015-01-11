@@ -9,7 +9,7 @@ Installation
     pip3 install volapi
 
 Examples
--------
+--------
 
 Basic
 ~~~~~
@@ -31,7 +31,7 @@ Basic
             print(msg.nick + ": " + msg.msg)
 
 Listening
-~~~~~~~~~~
+~~~~~~~~~
 
 Some basic trolling can be archieved with just a few lines of code.
 
