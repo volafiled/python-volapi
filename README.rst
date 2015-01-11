@@ -39,7 +39,7 @@ Some basic trolling can be achieved with just a few lines of code.
 
 .. code-block:: python
 
-    from volapi import Room, listen_many
+    from volapi import Room
 
     with Room("BEEPi", "Stallman") as BEEPi:
         def interject(msg):
