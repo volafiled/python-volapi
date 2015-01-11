@@ -604,7 +604,7 @@ class Room:
                 del file.event
             elif data_type in ("update_assets", "subscribed",
                                "hooks", "time", "login"):
-                self.conn.enqueue_data(data_type, self)
+                self.conn.enqueue_data(data_type, data)
             else:
                 warnings.warn(
                     "unknown data type '{}'".format(data_type),
