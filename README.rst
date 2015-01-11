@@ -34,7 +34,7 @@ Basic
 Listening
 ~~~~~~~~~
 
-Some basic trolling can be archieved with just a few lines of code.
+Some basic trolling can be achieved with just a few lines of code.
 
 .. code-block:: python
 
