@@ -602,6 +602,8 @@ class Room:
                 file.info = data.get(file.type)
                 file.event.set()
                 del file.event
+            elif data_type == "time":
+                self.conn.enqueue_data("time", data / 1000)
             elif data_type in ("update_assets", "subscribed",
                                "hooks", "time", "login"):
                 self.conn.enqueue_data(data_type, data)
