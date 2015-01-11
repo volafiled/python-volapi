@@ -51,8 +51,19 @@ BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
 BASE_REST_URL = BASE_URL + "/rest/"
 BASE_WS_URL = "wss://volafile.io/api/"
-EVENT_TYPES = ("chat", "file", "user_count", "config", "user", "owner",
-               "update_assets", "subscribed", "hooks", "time", "login")
+EVENT_TYPES = (
+    "chat",
+    "file",
+    "user_count",
+    "config",
+    "user",
+    "owner",
+    "update_assets",
+    "subscribed",
+    "hooks",
+    "time",
+    "login",
+    "chat_success")
 
 
 def call_async(func):
@@ -604,12 +615,16 @@ class Room:
                 del file.event
             elif data_type == "time":
                 self.conn.enqueue_data("time", data / 1000)
+            elif data_type == "submitChat":
+                self.conn.enqueue_data("chat_success", data)
             elif data_type in ("update_assets", "subscribed",
                                "hooks", "time", "login"):
                 self.conn.enqueue_data(data_type, data)
             else:
                 warnings.warn(
-                    "unknown data type '{}'".format(data_type),
+                    "unknown data type '{}' with data '{}'".format(
+                        data_type,
+                        data),
                     Warning)
         self.conn.process_queues()
 
