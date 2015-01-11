@@ -9,7 +9,9 @@ from volapi import Room
 
 
 def listen(room):
+    """Open a volafile room and start listening to it"""
     def onmessage(m):
+        """Print the new message and respond to it."""
         print(m)
         if m.admin or m.nick == r.user.name:
             return
