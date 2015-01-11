@@ -1,7 +1,8 @@
 =====================
 Volafile API (volapi)
 =====================
-
+.. image:: https://travis-ci.org/PhearTheCeal/Volafile-API.svg
+    :target: https://travis-ci.org/PhearTheCeal/Volafile-API
 Installation
 ------------
 ::
