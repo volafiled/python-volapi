@@ -45,7 +45,7 @@ from autobahn.asyncio.websocket import WebSocketClientProtocol
 
 from .multipart import Data
 
-__version__ = "0.15.1"
+__version__ = "0.15.2"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -169,7 +169,7 @@ def parse_chat_message(data):
     rooms = []
     msg = ""
     for part in data["message"]:
-        if part['type'] == 'text':
+        if part['type'] in ('text', 'raw'):
             msg += part['value']
         elif part['type'] == 'break':
             msg += "\n"
