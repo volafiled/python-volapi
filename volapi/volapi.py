@@ -167,7 +167,6 @@ class MLStripper(HTMLParser):
     """Used for stripping HTML from text."""
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.reset()
         self.fed = []
 
     def handle_data(self, d):
