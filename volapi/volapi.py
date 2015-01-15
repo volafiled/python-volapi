@@ -15,6 +15,7 @@ You should have received a copy of the GNU General Public License
 along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 '''
 # pylint: disable=bad-continuation
+# pylint: disable=too-many-lines
 
 import asyncio
 import json
@@ -39,6 +40,7 @@ from threading import Thread
 from threading import Event
 from threading import get_ident as get_thread_ident
 from urllib.parse import urlsplit
+from html.parser import HTMLParser
 
 from autobahn.asyncio.websocket import WebSocketClientFactory
 from autobahn.asyncio.websocket import WebSocketClientProtocol
@@ -161,6 +163,27 @@ class ListenerArbitrator:
 ARBITRATOR = ListenerArbitrator()
 
 
+class MLStripper(HTMLParser):
+    """Used for stripping HTML from text."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.reset()
+        self.fed = []
+
+    def handle_data(self, d):
+        self.fed.append(d)
+
+    def get_data(self):
+        """Gets the non-HTML data from text that was fed in"""
+        return ''.join(self.fed)
+
+
+def html_to_text(html):
+    """Strips HTML tags from given text and returns it."""
+    stripper = MLStripper()
+    stripper.feed(html)
+    return stripper.get_data()
+
 def parse_chat_message(data):
     """Parses the data for a json chat message and returns a
     ChatMessage object"""
@@ -168,19 +191,28 @@ def parse_chat_message(data):
     files = []
     rooms = []
     msg = ""
+    html_msg = ""
     for part in data["message"]:
-        if part['type'] in ('text', 'raw'):
+        if part['type'] == 'text':
             msg += part['value']
+            html_msg += part['value']
         elif part['type'] == 'break':
             msg += "\n"
+            html_msg += "\n"
         elif part['type'] == 'file':
             files += File(part['id'], part['name']),
             msg += "@" + part['id']
+            html_msg += "@" + part['id']
         elif part['type'] == 'room':
             rooms += part["id"],
             msg += "#" + part['id']
+            html_msg += "#" + part['id']
         elif part['type'] == 'url':
             msg += part['text']
+            html_msg += part['text']
+        elif part['type'] == 'raw':
+            msg += html_to_text(part['value'])
+            html_msg += part['value']
         else:
             warnings.warn(
                 "unknown message type '{}'".format(
@@ -192,7 +224,7 @@ def parse_chat_message(data):
     user = 'user' in options or admin
     donator = 'donator' in options
 
-    chat_message = ChatMessage(nick, msg, files, rooms,
+    chat_message = ChatMessage(nick, msg, files, rooms, html_msg,
                                logged_in=user,
                                donor=donator,
                                admin=admin)
@@ -200,7 +232,7 @@ def parse_chat_message(data):
 
 
 def random_id(length):
-    """Generates a random ID of n length"""
+    """Generates a random ID of given length"""
     def char():
         """Generate single random char"""
         return random.choice(string.ascii_letters + string.digits)
@@ -797,9 +829,11 @@ class ChatMessage:
     user of the message was logged in, a donor, or an admin."""
     # pylint: disable=too-few-public-methods
 
-    def __init__(self, nick, msg, files, rooms, **kw):
+    def __init__(self, nick, msg, files, rooms, html_msg, ** kw):
+        # pylint: disable=too-many-arguments
         self.nick = nick
         self.msg = msg
+        self.html_msg = html_msg
         self.files = files
         self.rooms = rooms
         for key in ("logged_in", "donor", "admin"):
