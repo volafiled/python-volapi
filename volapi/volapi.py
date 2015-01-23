@@ -594,7 +594,7 @@ class Room:
                 data_type = None
             try:
                 data = item[0][1][1]
-            except ValueError:
+            except IndexError:
                 data = dict()
             if data_type == "user_count":
                 self._user_count = data
