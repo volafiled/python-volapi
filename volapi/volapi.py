@@ -164,7 +164,9 @@ ARBITRATOR = ListenerArbitrator()
 
 
 class MLStripper(HTMLParser):
+
     """Used for stripping HTML from text."""
+
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.fed = []
@@ -182,6 +184,7 @@ def html_to_text(html):
     stripper = MLStripper()
     stripper.feed(html)
     return stripper.get_data()
+
 
 def parse_chat_message(data):
     """Parses the data for a json chat message and returns a
@@ -610,7 +613,6 @@ class Room:
                     file.download_info = partial(
                         file.download_info,
                         conn=self.conn)
-                    file.event = Event()
             elif data_type == "delete_file":
                 del self._files[data]
             elif data_type == "chat":
@@ -641,9 +643,7 @@ class Room:
                 self.conn.enqueue_data("owner", self.owner)
             elif data_type == "fileinfo":
                 file = self._files[data['id']]
-                file.info = data.get(file.type)
-                file.event.set()
-                del file.event
+                file.add_info(data)
             elif data_type == "time":
                 self.conn.enqueue_data("time", data / 1000)
             elif data_type == "submitChat":
@@ -758,7 +758,7 @@ class Room:
 
     def report(self, reason=""):
         """Reports this room to moderators with optional reason."""
-        self.conn.make_call("submitReport", [{"reason":reason}])
+        self.conn.make_call("submitReport", [{"reason": reason}])
 
     @property
     def title(self):
@@ -861,12 +861,44 @@ class File:
     ):
         self.id = file_id
         self.name = name
-        self.type = file_type
-        self.size = size
-        self.expire_time = expire_time
-        self.uploader = uploader
+        self._type = file_type
+        self._size = size
+        self._expire_time = expire_time
+        self._uploader = uploader
         self._info = None
-        self.event = None
+        self._event = None
+
+    @property
+    def type(self):
+        """Gets the type of the file."""
+        # pylint: disable=pointless-statement
+        if self._type is None:
+            self.info
+        return self._type
+
+    @property
+    def size(self):
+        """Gets the size of the file."""
+        # pylint: disable=pointless-statement
+        if self._size is None:
+            self.info
+        return self._size
+
+    @property
+    def expire_time(self):
+        """Gets the expire time of the file."""
+        # pylint: disable=pointless-statement
+        if self._expire_time is None:
+            self.info
+        return self._expire_time
+
+    @property
+    def uploader(self):
+        """Gets the uploader of the file."""
+        # pylint: disable=pointless-statement
+        if self._uploader is None:
+            self.info
+        return self._uploader
 
     @property
     def url(self):
@@ -913,14 +945,18 @@ class File:
     def info(self):
         """Returns info about the file"""
         if not self._info:
+            self._event = Event()
             self.download_info()
-            self.event.wait()
+            self._event.wait()
         return self._info
 
-    @info.setter
-    def info(self, val):
-        """Sets the value of info"""
-        self._info = val
+    def add_info(self, info):
+        """Adds info to the file."""
+        self._info = info[self.type]
+        self.name = info['name']
+        self.size = info['size']
+        self.expire_time = info['expires']
+        self.uploader = info['user']
 
     def download_info(self, conn):
         """Asks the server for the file info"""
