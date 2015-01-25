@@ -191,7 +191,7 @@ def parse_chat_message(data):
     ChatMessage object"""
     nick = data['nick']
     files = []
-    rooms = []
+    rooms = {}
     msg = ""
     html_msg = ""
     for part in data["message"]:
@@ -206,7 +206,7 @@ def parse_chat_message(data):
             msg += "@" + part['id']
             html_msg += "@" + part['id']
         elif part['type'] == 'room':
-            rooms += part["id"],
+            rooms[part["id"]] = part['name']
             msg += "#" + part['id']
             html_msg += "#" + part['id']
         elif part['type'] == 'url':
