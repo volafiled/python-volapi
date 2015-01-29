@@ -47,7 +47,7 @@ from autobahn.asyncio.websocket import WebSocketClientProtocol
 
 from .multipart import Data
 
-__version__ = "1.0.2"
+__version__ = "1.0.3"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -958,6 +958,7 @@ class File:
         self._size = info['size']
         self._expire_time = info['expires']
         self._uploader = info['user']
+        self._event.set()
 
     def download_info(self, conn):
         """Asks the server for the file info"""
