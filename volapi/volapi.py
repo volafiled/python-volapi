@@ -47,7 +47,7 @@ from autobahn.asyncio.websocket import WebSocketClientProtocol
 
 from .multipart import Data
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -184,53 +184,6 @@ def html_to_text(html):
     stripper = MLStripper()
     stripper.feed(html)
     return stripper.get_data()
-
-
-def parse_chat_message(data):
-    """Parses the data for a json chat message and returns a
-    ChatMessage object"""
-    nick = data['nick']
-    files = []
-    rooms = {}
-    msg = ""
-    html_msg = ""
-    for part in data["message"]:
-        if part['type'] == 'text':
-            msg += part['value']
-            html_msg += part['value']
-        elif part['type'] == 'break':
-            msg += "\n"
-            html_msg += "\n"
-        elif part['type'] == 'file':
-            files += File(part['id'], part['name']),
-            msg += "@" + part['id']
-            html_msg += "@" + part['id']
-        elif part['type'] == 'room':
-            rooms[part["id"]] = part['name']
-            msg += "#" + part['id']
-            html_msg += "#" + part['id']
-        elif part['type'] == 'url':
-            msg += part['text']
-            html_msg += part['text']
-        elif part['type'] == 'raw':
-            msg += html_to_text(part['value'])
-            html_msg += part['value']
-        else:
-            warnings.warn(
-                "unknown message type '{}'".format(
-                    part['type']),
-                Warning)
-
-    options = data['options']
-    admin = 'admin' in options
-    user = 'user' in options or admin
-    donator = 'donator' in options
-
-    chat_message = ChatMessage(nick, msg, files, rooms, html_msg,
-                               logged_in=user,
-                               donor=donator,
-                               admin=admin)
-    return chat_message
 
 
 def random_id(length):
@@ -616,7 +569,7 @@ class Room:
             elif data_type == "delete_file":
                 del self._files[data]
             elif data_type == "chat":
-                chat_message = parse_chat_message(data)
+                chat_message = self._parse_chat_message(data)
                 self._chat_log.append(chat_message)
                 self.conn.enqueue_data("chat", chat_message)
             elif data_type == "changed_config":
@@ -658,6 +611,54 @@ class Room:
                         data),
                     Warning)
         self.conn.process_queues()
+
+    def _parse_chat_message(self, data):
+        """Parses the data for a json chat message and returns a
+        ChatMessage object"""
+        nick = data['nick']
+        files = []
+        rooms = {}
+        msg = ""
+        html_msg = ""
+        for part in data["message"]:
+            if part['type'] == 'text':
+                msg += part['value']
+                html_msg += part['value']
+            elif part['type'] == 'break':
+                msg += "\n"
+                html_msg += "\n"
+            elif part['type'] == 'file':
+                files += File(part['id'], part['name']),
+                files[-1].download_info = partial(
+                    files[-1].download_info, conn=self.conn)
+                msg += "@" + part['id']
+                html_msg += "@" + part['id']
+            elif part['type'] == 'room':
+                rooms[part["id"]] = part['name']
+                msg += "#" + part['id']
+                html_msg += "#" + part['id']
+            elif part['type'] == 'url':
+                msg += part['text']
+                html_msg += part['text']
+            elif part['type'] == 'raw':
+                msg += html_to_text(part['value'])
+                html_msg += part['value']
+            else:
+                warnings.warn(
+                    "unknown message type '{}'".format(
+                        part['type']),
+                    Warning)
+
+        options = data['options']
+        admin = 'admin' in options
+        user = 'user' in options or admin
+        donator = 'donator' in options
+
+        chat_message = ChatMessage(nick, msg, files, rooms, html_msg,
+                                   logged_in=user,
+                                   donor=donator,
+                                   admin=admin)
+        return chat_message
 
     @property
     def chat_log(self):
