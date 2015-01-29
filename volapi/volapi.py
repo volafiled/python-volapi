@@ -955,9 +955,9 @@ class File:
         """Adds info to the file."""
         self._info = info[self.type]
         self.name = info['name']
-        self.size = info['size']
-        self.expire_time = info['expires']
-        self.uploader = info['user']
+        self._size = info['size']
+        self._expire_time = info['expires']
+        self._uploader = info['user']
 
     def download_info(self, conn):
         """Asks the server for the file info"""
