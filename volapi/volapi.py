@@ -47,7 +47,7 @@ from autobahn.asyncio.websocket import WebSocketClientProtocol
 
 from .multipart import Data
 
-__version__ = "1.0.3"
+__version__ = "1.1.0"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -628,9 +628,14 @@ class Room:
                 msg += "\n"
                 html_msg += "\n"
             elif part['type'] == 'file':
-                files += File(part['id'], part['name']),
-                files[-1].download_info = partial(
-                    files[-1].download_info, conn=self.conn)
+                if part['id'] in self._files:
+                    files += self._files[part['id']],
+                else:
+                    new_file = File(part['id'], part['name'])
+                    files += new_file,
+                    self._files[part['id']] = new_file
+                    new_file.download_info = partial(
+                        new_file.download_info, conn=self.conn)
                 msg += "@" + part['id']
                 html_msg += "@" + part['id']
             elif part['type'] == 'room':
@@ -867,7 +872,7 @@ class File:
         self._expire_time = expire_time
         self._uploader = uploader
         self._info = None
-        self._event = None
+        self._event = Event()
 
     @property
     def type(self):
@@ -946,19 +951,32 @@ class File:
     def info(self):
         """Returns info about the file"""
         if not self._info:
-            self._event = Event()
             self.download_info()
             self._event.wait()
         return self._info
 
     def add_info(self, info):
         """Adds info to the file."""
-        self._info = info[self.type]
+        self._type = self._find_type(info)
+        self._info = info[self._type]
         self.name = info['name']
         self._size = info['size']
         self._expire_time = info['expires']
         self._uploader = info['user']
         self._event.set()
+
+    def _find_type(self, info):
+        """Finds the file type key in file info."""
+        # pylint: disable=no-self-use
+        for file_type in (
+                'book',
+                'image',
+                'video',
+                'audio',
+                'archive',
+                'other'):
+            if file_type in info:
+                return file_type
 
     def download_info(self, conn):
         """Asks the server for the file info"""
