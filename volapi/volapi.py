@@ -47,7 +47,7 @@ from autobahn.asyncio.websocket import WebSocketClientProtocol
 
 from .multipart import Data
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -602,7 +602,7 @@ class Room:
             elif data_type == "submitChat":
                 self.conn.enqueue_data("chat_success", data)
             elif data_type in ("update_assets", "subscribed",
-                               "hooks", "time", "login"):
+                               "hooks", "time", "login", "room_old"):
                 self.conn.enqueue_data(data_type, data)
             else:
                 warnings.warn(
