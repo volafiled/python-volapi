@@ -47,7 +47,7 @@ from autobahn.asyncio.websocket import WebSocketClientProtocol
 
 from .multipart import Data
 
-__version__ = "1.1.1"
+__version__ = "1.2.0"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -474,6 +474,7 @@ class Room:
             self._config['max_title'] = config['max_room_name_length']
             self._config['max_message'] = config['max_message_length']
             max_nick = config['max_alias_length']
+            self._config['max_nick'] = max_nick
             self._config['max_file'] = config['file_max_size']
             self._config['ttl'] = config.get('file_ttl')
             if self._config['ttl'] is None:
@@ -765,6 +766,10 @@ class Room:
     def report(self, reason=""):
         """Reports this room to moderators with optional reason."""
         self.conn.make_call("submitReport", [{"reason": reason}])
+
+    @property
+    def config(self):
+        return dict(self._config)
 
     @property
     def title(self):
