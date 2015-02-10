@@ -472,8 +472,8 @@ class Room:
             secret_key = config.get('secretToken')
 
             self._config['max_title'] = config['max_room_name_length']
-            self._config['max_message'] = config['max_message_length']
-            max_nick = config['max_alias_length']
+            self._config['max_message'] = config['chat_max_message_length']
+            max_nick = config['chat_max_alias_length']
             self._config['max_nick'] = max_nick
             self._config['max_file'] = config['file_max_size']
             self._config['ttl'] = config.get('file_ttl')
