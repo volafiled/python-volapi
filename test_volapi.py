@@ -117,7 +117,7 @@ class TestVolapi(unittest.TestCase):
 
     def test_motd(self):
         """Test setting and getting room's MOTD"""
-        self.assertEqual("", ROOM.motd)
+        self.assertIsNone(ROOM.motd)
 
         def check_motd(room):
                 # pylint: disable=missing-docstring
