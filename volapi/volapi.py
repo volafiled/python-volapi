@@ -402,8 +402,6 @@ class Connection(requests.Session):
         """Sets whether queue processing is enabled"""
         with self.lock:
             self._queues_enabled = value
-            if value:
-                self.process_queues(True)
 
     def process_queues(self, forced=False):
         """Process queues if any have data queued"""
