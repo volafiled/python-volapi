@@ -47,7 +47,7 @@ from autobahn.asyncio.websocket import WebSocketClientProtocol
 
 from .multipart import Data
 
-__version__ = "1.2.2"
+__version__ = "1.2.3"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
