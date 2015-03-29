@@ -403,12 +403,12 @@ class Connection(requests.Session):
         with self.lock:
             self._queues_enabled = value
             if value:
-                self.process_queues()
+                self.process_queues(True)
 
-    def process_queues(self):
+    def process_queues(self, forced=False):
         """Process queues if any have data queued"""
         with self.lock:
-            if not self.must_process or not self._queues_enabled:
+            if (not forced and not self.must_process) or not self._queues_enabled:
                 return
             with ARBITRATOR.condition:
                 ARBITRATOR.condition.notify_all()
