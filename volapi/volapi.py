@@ -32,7 +32,6 @@ from collections import OrderedDict
 from collections import defaultdict
 from collections import namedtuple
 from functools import wraps
-from functools import partial
 from threading import Barrier
 from threading import Condition
 from threading import RLock
@@ -209,12 +208,17 @@ class Listeners(namedtuple("Listeners", ("callbacks", "queue", "lock"))):
     def process(self):
         """Process queue for these listeners"""
         with self.lock:
-            for item in self.queue:
-                callbacks = [c for c in self.callbacks
-                             if c(item) is not False]
-                self.callbacks.clear()
-                self.callbacks.extend(callbacks)
+            items = list(self.queue)
             self.queue.clear()
+            callbacks = list(self.callbacks)
+
+        for item in items:
+            callbacks = [c for c in callbacks
+                         if c(item) is not False]
+
+        with self.lock:
+            self.callbacks.clear()
+            self.callbacks.extend(callbacks)
             return len(self.callbacks)
 
     def add(self, callback):
@@ -284,6 +288,7 @@ class Connection(requests.Session):
         self.lock = RLock()
         self.listeners = defaultdict(lambda: defaultdict(Listeners))
         self.must_process = False
+        self._queues_enabled = True
 
         self._ping_interval = 20  # default
 
@@ -372,23 +377,38 @@ class Connection(requests.Session):
             raise ValueError("Invalid event type: {}".format(event_type))
         thread = get_thread_ident()
         with self.lock:
-            self.listeners[event_type][thread].add(callback)
-            if event_type == "file":
-                for file in self.room.files:
-                    self.enqueue_data(event_type, file)
+            listener = self.listeners[event_type][thread]
+        listener.add(callback)
+        if event_type == "file":
+            for file in self.room.files:
+                self.enqueue_data(event_type, file)
         self.process_queues()
 
     def enqueue_data(self, event_type, data):
         """Enqueue a data item for specific event type"""
         with self.lock:
-            for listener in self.listeners[event_type].values():
+            listeners = list(self.listeners[event_type].values())
+            for listener in listeners:
                 listener.enqueue(data)
                 self.must_process = True
+
+    @property
+    def queues_enabled(self):
+        """Whether queue processing is enabled"""
+        return self._queues_enabled
+
+    @queues_enabled.setter
+    def queues_enabled(self, value):
+        """Sets whether queue processing is enabled"""
+        with self.lock:
+            self._queues_enabled = value
+            if value:
+                self.process_queues()
 
     def process_queues(self):
         """Process queues if any have data queued"""
         with self.lock:
-            if not self.must_process:
+            if not self.must_process or not self._queues_enabled:
                 return
             with ARBITRATOR.condition:
                 ARBITRATOR.condition.notify_all()
@@ -419,8 +439,7 @@ class Connection(requests.Session):
 
     def run_queues(self):
         """Run all queues that have data queued"""
-        with self.lock:
-            listeners = self._listeners_for_thread
+        listeners = self._listeners_for_thread
         return sum(l.process() for l in listeners) > 0
 
 
@@ -554,7 +573,8 @@ class Room:
             elif data_type == "files":
                 files = data['files']
                 for file in files:
-                    file = File(file[0],  # id
+                    file = File(self.conn,
+                                file[0],  # id
                                 file[1],  # name
                                 file[2],  # type
                                 file[3],  # size
@@ -562,9 +582,6 @@ class Room:
                                 file[6]['user'])
                     self._files[file.id] = file
                     self.conn.enqueue_data("file", file)
-                    file.download_info = partial(
-                        file.download_info,
-                        conn=self.conn)
             elif data_type == "delete_file":
                 del self._files[data]
             elif data_type == "chat":
@@ -630,13 +647,11 @@ class Room:
                 if part['id'] in self._files:
                     files += self._files[part['id']],
                 else:
-                    new_file = File(part['id'], part['name'])
+                    new_file = File(self.conn, part['id'], part['name'])
                     files += new_file,
                     # TODO don't put this in _files since
                     # this file isn't actually in this room
                     self._files[part['id']] = new_file
-                    new_file.download_info = partial(
-                        new_file.download_info, conn=self.conn)
                 msg += "@" + part['id']
                 html_msg += "@" + part['id']
             elif part['type'] == 'room':
@@ -864,6 +879,7 @@ class File:
 
     def __init__(
             self,
+            conn,
             file_id,
             name,
             file_type=None,
@@ -871,6 +887,7 @@ class File:
             expire_time=None,
             uploader=None,
     ):
+        self.conn = conn
         self.id = file_id
         self.name = name
         self._type = file_type
@@ -883,33 +900,29 @@ class File:
     @property
     def type(self):
         """Gets the type of the file."""
-        # pylint: disable=pointless-statement
         if self._type is None:
-            self.info
+            self.download_info()
         return self._type
 
     @property
     def size(self):
         """Gets the size of the file."""
-        # pylint: disable=pointless-statement
         if self._size is None:
-            self.info
+            self.download_info()
         return self._size
 
     @property
     def expire_time(self):
         """Gets the expire time of the file."""
-        # pylint: disable=pointless-statement
         if self._expire_time is None:
-            self.info
+            self.download_info()
         return self._expire_time
 
     @property
     def uploader(self):
         """Gets the uploader of the file."""
-        # pylint: disable=pointless-statement
         if self._uploader is None:
-            self.info
+            self.download_info()
         return self._uploader
 
     @property
@@ -958,7 +971,6 @@ class File:
         """Returns info about the file"""
         if not self._info:
             self.download_info()
-            self._event.wait()
         return self._info
 
     def add_info(self, info):
@@ -984,9 +996,14 @@ class File:
                 return file_type
         return "other"
 
-    def download_info(self, conn):
+    def download_info(self):
         """Asks the server for the file info"""
-        conn.make_call("get_fileinfo", [self.id])
+        self.conn.queues_enabled = False
+        try:
+            self.conn.make_call("get_fileinfo", [self.id])
+            self._event.wait()
+        finally:
+            self.conn.queues_enabled = True
 
 
 class User:
