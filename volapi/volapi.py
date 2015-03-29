@@ -350,8 +350,6 @@ class Connection(requests.Session):
             if isinstance(json_data, list) and len(json_data) > 1:
                 self.proto.max_id = int(json_data[1][-1])
                 self.room.add_data(json_data)
-                with ARBITRATOR.condition:
-                    ARBITRATOR.condition.notify_all()
             return
 
     def _get_checksums(self, room_name):
@@ -634,6 +632,8 @@ class Room:
                 else:
                     new_file = File(part['id'], part['name'])
                     files += new_file,
+                    # TODO don't put this in _files since
+                    # this file isn't actually in this room
                     self._files[part['id']] = new_file
                     new_file.download_info = partial(
                         new_file.download_info, conn=self.conn)
@@ -769,6 +769,7 @@ class Room:
 
     @property
     def config(self):
+        """Get config data for this room."""
         return dict(self._config)
 
     @property
@@ -978,10 +979,10 @@ class File:
                 'image',
                 'video',
                 'audio',
-                'archive',
-                'other'):
+                'archive'):
             if file_type in info:
                 return file_type
+        return "other"
 
     def download_info(self, conn):
         """Asks the server for the file info"""
