@@ -964,7 +964,7 @@ class File:
     def add_info(self, info):
         """Adds info to the file."""
         self._type = self._find_type(info)
-        self._info = info[self._type]
+        self._info = info.get(self._type) or {}
         self.name = info['name']
         self._size = info['size']
         self._expire_time = info['expires']
