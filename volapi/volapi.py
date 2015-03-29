@@ -47,7 +47,7 @@ from autobahn.asyncio.websocket import WebSocketClientProtocol
 
 from .multipart import Data
 
-__version__ = "1.2.3"
+__version__ = "1.2.4"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -967,7 +967,7 @@ class File:
         self._info = info.get(self._type) or {}
         self.name = info['name']
         self._size = info['size']
-        self._expire_time = info['expires']
+        self._expire_time = info['expires'] / 1000
         self._uploader = info['user']
         self._event.set()
 
