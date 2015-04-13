@@ -1,14 +1,12 @@
 =====================
 Volafile API (volapi)
 =====================
-.. image:: https://travis-ci.org/PhearTheCeal/Volafile-API.svg
-    :target: https://travis-ci.org/PhearTheCeal/Volafile-API
 
 Installation
 ------------
 ::
 
-    pip3 install volapi
+    pip3 install https://github.com/RealDolos/volapi/archive/master.zip
 
 Examples
 --------
@@ -21,7 +19,7 @@ Basic
     from volapi import Room
     
     # beepi will close at the end of this scope
-    with Room("BEEPi", "ptc") as beepi:
+    with Room("BEEPi", "SameFag") as beepi:
         # optional login using a password
         beepi.user.login("hunter2")
         # Upload a file under a new filename and save the id

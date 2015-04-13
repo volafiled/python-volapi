@@ -129,7 +129,7 @@ class TestVolapi(unittest.TestCase):
 
     def test_beepi(self):
         """Make sure BEEPi can open"""
-        with Room("BEEPi", "ptc") as beepi:
+        with Room("BEEPi", "test") as beepi:
             def check_users(usercount):
                 # pylint: disable=missing-docstring
                 self.assertGreater(usercount, 1)

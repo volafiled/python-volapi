@@ -445,7 +445,7 @@ class Room:
 
     """ Use this to interact with a room as a user
     Example:
-        with Room("BEEPi", "ptc") as r:
+        with Room("BEEPi", "SameFag") as r:
             r.post_chat("Hello, world!")
             r.upload_file("onii-chan.ogg")
     """
