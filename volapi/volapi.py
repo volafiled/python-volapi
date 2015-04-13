@@ -46,7 +46,7 @@ from autobahn.asyncio.websocket import WebSocketClientProtocol
 
 from .multipart import Data
 
-__version__ = "1.2.5"
+__version__ = "1.2.7"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
@@ -482,7 +482,7 @@ class Room:
             config = json.loads(text)
 
             self._config['title'] = config['name']
-            self._config['private'] = config['private'] == 'true'
+            self._config['private'] = config.get('private', "true") == 'true'
             self._config['motd'] = config.get('motd')
             secret_key = config.get('secretToken')
 
@@ -595,7 +595,7 @@ class Room:
                 elif change['key'] == 'private':
                     self._config['private'] = change['value']
                 elif change['key'] == 'motd':
-                    self._config['motd'] = change.get('value') or ""
+                    self._config['motd'] = change.get('value', "")
                 else:
                     warnings.warn(
                         "unknown config key '{}'".format(
@@ -967,14 +967,14 @@ class File:
     @property
     def info(self):
         """Returns info about the file"""
-        if not self._info:
+        if self._info is None:
             self.download_info()
         return self._info
 
     def add_info(self, info):
         """Adds info to the file."""
         self._type = self._find_type(info)
-        self._info = info.get(self._type) or {}
+        self._info = info.get(self._type, {})
         self.name = info['name']
         self._size = info['size']
         self._expire_time = info['expires'] / 1000
