@@ -151,13 +151,11 @@ class Connection(requests.Session):
         """Gets the main checksums"""
 
         try:
-            text = self.get(BASE_ROOM_URL + room_name).text
-            cs2 = re.search(r'checksum2\s*:\s*"(\w+?)"', text).group(1)
             text = self.get(
-                "https://static.volafile.io/static/js/main.js?c=" + cs2).text
+                "https://static.volafile.io/static/js/main.js?c=" + self.room.cs2).text
             cs1 = re.search(r'config\.checksum\s*=\s*"(\w+?)"', text).group(1)
 
-            return cs1, cs2
+            return cs1, self.room.cs2
         except Exception:
             raise IOError("Failed to get checksums")
 
@@ -271,8 +269,12 @@ class Room:
         try:
             if not room_resp:
                 room_resp = self.conn.get(BASE_ROOM_URL + self.name)
+
             text = room_resp.text
             text = text.replace('\n', '')
+
+            self.cs2 = re.search(r'checksum2\s*:\s*"(\w+?)"', text).group(1)
+
             text = re.sub(
                 r'(\w+):(?=([^"\\]*(\\.|"([^"\\]*\\.)*[^"\\]*"))*[^"]*$)',
                 r'"\1":',
