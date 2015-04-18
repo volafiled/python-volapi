@@ -29,11 +29,13 @@ from urllib.parse import quote
 
 def generate_boundary():
     """Generates a boundary string to be used for multipart/form-data"""
+
     return uuid.uuid4().hex
 
 
 def escape_header(val):
     """Escapes a value so that it can be used in a mime header"""
+
     if val is None:
         return None
     try:
@@ -44,6 +46,7 @@ def escape_header(val):
 
 def make_streams(name, value, boundary, encoding):
     """Generates one or more streams for each name, value pair"""
+
     filename = None
     mime = None
 
