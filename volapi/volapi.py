@@ -111,6 +111,7 @@ class Connection(requests.Session):
 
         ARBITRATOR.close(self.proto)
         super().close()
+        del self.room
 
     def subscribe(self, room_name, username, secret_key):
         """Make subscribe API call"""
@@ -140,7 +141,7 @@ class Connection(requests.Session):
             self.close()
             return
 
-        if new_data[0] == '4':
+        if new_data[0] == '4' and hasattr(self, "room"):
             json_data = json.loads(new_data[1:])
             if isinstance(json_data, list) and len(json_data) > 1:
                 self.proto.max_id = int(json_data[1][-1])
@@ -632,6 +633,8 @@ class Room:
 
         if self.connected:
             self.conn.close()
+        self.clear()
+        del self.conn
 
     def report(self, reason=""):
         """Reports this room to moderators with optional reason."""
