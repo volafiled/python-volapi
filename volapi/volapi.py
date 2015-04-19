@@ -312,7 +312,6 @@ class Room:
         self._user_count = 0
         self._files = OrderedDict()
         self._filereqs = {}
-        self._chat_log = []
 
         if subscribe:
             self.conn.subscribe(self.name, self.user.name, secret_key)
@@ -429,7 +428,6 @@ class Room:
                                    logged_in=user,
                                    donor="donator" in options,
                                    admin=admin)
-        self._chat_log.append(chat_message)
         self.conn.enqueue_data("chat", chat_message)
 
     def _handle_changed_config(self, change, data_type):
@@ -529,14 +527,6 @@ class Room:
                              self._handle_unhandled)
             method(data, data_type)
         self.conn.process_queues()
-
-    @property
-    def chat_log(self):
-        """Returns list of ChatMessage objects for this room.
-        Note: This will only reflect the messages at the time
-        this method was called."""
-
-        return self._chat_log[:]
 
     @property
     def user_count(self):
@@ -705,7 +695,6 @@ class Room:
     def clear(self):
         """Clears the cached information, if any"""
 
-        self._chat_log.clear()
         self._files.clear()
 
     def _generate_upload_key(self):
