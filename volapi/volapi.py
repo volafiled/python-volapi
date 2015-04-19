@@ -650,7 +650,8 @@ class Room:
 
         return self._config['title']
 
-    def set_title(self, new_name):
+    @title.setter
+    def title(self, new_name):
         """Sets the room name (e.g. /g/entoomen)"""
 
         if not self.owner:
@@ -668,7 +669,8 @@ class Room:
 
         return self._config['private']
 
-    def set_private(self, value):
+    @private.setter
+    def private(self, value):
         """Sets the room to private if given True, else sets to public"""
 
         if not self.owner:
@@ -682,7 +684,8 @@ class Room:
 
         return self._config['motd']
 
-    def set_motd(self, motd):
+    @motd.setter
+    def motd(self, motd):
         """Sets the room's MOTD"""
 
         if not self.owner:
