@@ -366,7 +366,7 @@ class Room:
             file = File(self.conn, file[0], file[1],
                         type=file[2],
                         size=file[3],
-                        expire_time=file[4],
+                        expire_time=int(file[4]) / 1000,
                         uploader=file[6]['user'])
             self._files[file.id] = file
             self.conn.enqueue_data("file", file)
