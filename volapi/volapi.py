@@ -91,7 +91,7 @@ class Connection(requests.Session):
     def connected(self):
         """Connection state"""
 
-        return self.proto.connected
+        return bool(hasattr(self, "proto") and self.proto.connected)
 
     def send_message(self, payload):
         """Send a message"""
@@ -111,12 +111,13 @@ class Connection(requests.Session):
 
         ARBITRATOR.close(self.proto)
         super().close()
+        self.listeners.clear()
         del self.room
 
     def subscribe(self, room_name, username, secret_key):
         """Make subscribe API call"""
 
-        checksum, checksum2 = self._get_checksums(room_name)
+        checksum, checksum2 = self._get_checksums()
         subscribe_options = {"room": room_name,
                              "checksum": checksum,
                              "checksum2": checksum2,
@@ -148,7 +149,7 @@ class Connection(requests.Session):
                 self.room.add_data(json_data)
             return
 
-    def _get_checksums(self, room_name):
+    def _get_checksums(self):
         """Gets the main checksums"""
 
         try:
@@ -164,6 +165,8 @@ class Connection(requests.Session):
         """Add a listener for specific event type.
         You'll need to actually listen for changes using the listen method"""
 
+        if not self.connected:
+            raise ValueError("Room is not connected")
         if event_type not in EVENT_TYPES:
             raise ValueError("Invalid event type: {}".format(event_type))
         thread = get_thread_ident()
@@ -254,22 +257,44 @@ class Room:
         """name is the room name, if none then makes a new room
         user is your user name, if none then generates one for you"""
 
-        self.conn = Connection(self)
 
-        room_resp = None
         self.name = name
+        self._config = {}
+        self._user_count = 0
+        self._files = OrderedDict()
+        self._filereqs = {}
+
+        self.conn = Connection(self)
+        try:
+            secret_key = self._connect()
+
+            if not subscribe and not user:
+                user = random_id(6)
+            self.user = User(user, self.conn, self._config["max_nick"])
+            self.owner = bool(secret_key)
+
+            if subscribe:
+                self.conn.subscribe(self.name, self.user.name, secret_key)
+        except Exception:
+            self.close()
+            raise
+
+    def _connect(self):
+        """ Really connect """
+        room_resp = None
         if not self.name:
             room_resp = self.conn.get(BASE_URL + "/new")
+            room_resp.raise_for_status()
             url = room_resp.url
             try:
                 self.name = re.search(r'r/(.+?)$', url).group(1)
             except Exception:
                 raise IOError("Failed to create room")
 
-        self._config = {}
         try:
             if not room_resp:
                 room_resp = self.conn.get(BASE_ROOM_URL + self.name)
+                room_resp.raise_for_status()
 
             text = room_resp.text
             text = text.replace('\n', '')
@@ -287,12 +312,10 @@ class Room:
             self._config['title'] = config['name']
             self._config['private'] = config.get('private', "true") == 'true'
             self._config['motd'] = config.get('motd')
-            secret_key = config.get('secretToken')
 
             self._config['max_title'] = config['max_room_name_length']
             self._config['max_message'] = config['chat_max_message_length']
-            max_nick = config['chat_max_alias_length']
-            self._config['max_nick'] = max_nick
+            self._config['max_nick'] = config['chat_max_alias_length']
             self._config['max_file'] = config['file_max_size']
             self._config['ttl'] = config.get('file_ttl')
             if self._config['ttl'] is None:
@@ -302,20 +325,10 @@ class Room:
                 self._config['ttl'] *= 3600
             self._config['session_lifetime'] = config['session_lifetime']
 
+            return config.get("secretToken")
+
         except Exception:
             raise IOError("Failed to get room config for {}".format(self.name))
-
-        if not subscribe and not user:
-            user = random_id(6)
-        self.user = User(user, self.conn, max_nick)
-        self.owner = bool(secret_key)
-
-        self._user_count = 0
-        self._files = OrderedDict()
-        self._filereqs = {}
-
-        if subscribe:
-            self.conn.subscribe(self.name, self.user.name, secret_key)
 
     def __repr__(self):
         return ("<Room({},{},connected={})>".
@@ -327,11 +340,14 @@ class Room:
     def __exit__(self, extype, value, traceback):
         self.close()
 
+    def __del__(self):
+        self.close()
+
     @property
     def connected(self):
         """Room is connected"""
 
-        return self.conn.connected
+        return bool(self.conn and self.conn.connected)
 
     def add_listener(self, event_type, callback):
         """Add a listener for specific event type.
@@ -623,18 +639,18 @@ class Room:
                               params=params,
                               data=files,
                               headers=headers)
-        if post.status_code == 200:
-            return file_id
-        else:
-            return None
+        post.raise_for_status()
+        return file_id
 
     def close(self):
         """Close connection to this room"""
 
-        if self.connected:
-            self.conn.close()
         self.clear()
-        del self.conn
+        if hasattr(self, "conn"):
+            self.conn.close()
+            del self.conn
+        if hasattr(self, "user"):
+            del self.user
 
     def report(self, reason=""):
         """Reports this room to moderators with optional reason."""
