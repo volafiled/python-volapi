@@ -309,21 +309,22 @@ class Room:
             text = re.search(r'config=({.+});', text).group(1)
             config = json.loads(text)
 
-            self._config['title'] = config['name']
-            self._config['private'] = config.get('private', "true") == 'true'
-            self._config['motd'] = config.get('motd')
+            self._config["title"] = config["name"]
+            self._config["private"] = config.get("private", "true") == "true"
+            self._config["disabled"] = config.get("disabled", "false") == "true"
+            self._config["motd"] = config.get("motd")
 
-            self._config['max_title'] = config['max_room_name_length']
-            self._config['max_message'] = config['chat_max_message_length']
-            self._config['max_nick'] = config['chat_max_alias_length']
-            self._config['max_file'] = config['file_max_size']
-            self._config['ttl'] = config.get('file_ttl')
-            if self._config['ttl'] is None:
-                self._config['ttl'] = config['file_time_to_live']
+            self._config["max_title"] = config["max_room_name_length"]
+            self._config["max_message"] = config["chat_max_message_length"]
+            self._config["max_nick"] = config["chat_max_alias_length"]
+            self._config["max_file"] = config["file_max_size"]
+            self._config["ttl"] = config.get("file_ttl")
+            if self._config["ttl"] is None:
+                self._config["ttl"] = config["file_time_to_live"]
             else:
                 # convert hours to seconds
-                self._config['ttl'] *= 3600
-            self._config['session_lifetime'] = config['session_lifetime']
+                self._config["ttl"] *= 3600
+            self._config["session_lifetime"] = config["session_lifetime"]
 
             return config.get("secretToken")
 
@@ -451,22 +452,32 @@ class Room:
         """Handle configuration changes"""
 
         try:
-            if change['key'] == 'name':
-                self._config['title'] = change['value']
-                return
-            if change['key'] == 'file_ttl':
-                self._config['ttl'] = change['value'] * 3600
-                return
-            if change['key'] == 'private':
-                self._config['private'] = change['value']
-                return
-            if change['key'] == 'motd':
-                self._config['motd'] = change.get('value', "")
-                return
+            key, value = change.get("key"), change.get("value")
+            try:
+                if key == 'name':
+                    self._config["title"] = value or ""
+                    return
+                if key == 'file_ttl':
+                    self._config["ttl"] = (value or 48) * 3600
+                    return
+                if key == 'private':
+                    # Yeah, I have seen both, a simple bool and a string m(
+                    self._config["private"] = (value and value != "false") or False
+                    return
+                if key == "disabled":
+                    self._config["disabled"] = (value and value != "false") or False
+                    return
+                if key == 'motd':
+                    self._config["motd"] = value or ""
+                    return
 
-            warnings.warn("unknown config key '{}'".
-                          format(change['key']),
-                          Warning)
+                warnings.warn("unknown config key '{}': {} ({})".
+                              format(key, value, type(value)),
+                              Warning)
+            except Exception as ex:
+                warnings.warn("Failed to handle config key'{}': {} ({})\nThis might be a bug!".
+                              format(key, value, type(value)),
+                              Warning)
 
         finally:
             self.conn.enqueue_data("config", self)
