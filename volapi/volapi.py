@@ -436,7 +436,7 @@ class Room:
                     Warning)
 
         options = data['options']
-        admin = 'admin' in options
+        admin = 'admin' in options or 'staff' in options
         user = 'user' in options or admin
 
         chat_message = ChatMessage(data["nick"], msg,
