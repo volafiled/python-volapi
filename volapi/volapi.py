@@ -769,7 +769,12 @@ class ChatMessage:
             setattr(self, key, kw.get(key, False))
 
     def __repr__(self):
-        return "<Msg({},{})>".format(self.nick, self.msg)
+        prefix = ""
+        if self.admin:
+            prefix = "@"
+        elif self.logged_in:
+            prefix = "+"
+        return "<Msg({}{},{})>".format(prefix, self.nick, self.msg)
 
 
 class File:
