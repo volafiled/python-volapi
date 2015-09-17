@@ -173,6 +173,7 @@ class Protocol(WebSocketClientProtocol):
     """Implements the websocket protocol"""
 
     def __init__(self, conn):
+        super().__init__()
         self.conn = conn
         self.connected = False
         self.max_id = 0

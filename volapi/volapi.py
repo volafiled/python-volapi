@@ -16,6 +16,7 @@ along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 '''
 # pylint: disable=bad-continuation,too-many-lines,broad-except
 
+import asyncio
 import json
 import os
 import re
@@ -60,6 +61,11 @@ class Connection(requests.Session):
     """Bundles a requests/websocket pair"""
 
     def __init__(self, room):
+        try:
+            asyncio.get_event_loop()
+        except Exception:
+            asyncio.set_event_loop(asyncio.new_event_loop())
+
         super().__init__()
 
         self.room = room
