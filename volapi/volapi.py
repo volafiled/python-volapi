@@ -619,7 +619,7 @@ class Room:
         self.conn.make_call("chat", [self.user.name, msg])
 
     def upload_file(self, filename, upload_as=None, blocksize=None,
-                    callback=None):
+                    callback=None, information_callback=None):
         """
         Uploads a file with given filename to this room.
         You may specify upload_as to change the name it is uploaded as.
@@ -627,37 +627,91 @@ class Room:
         Returns the file's id on success and None on failure."""
 
         file = filename if hasattr(filename, "read") else open(filename, 'rb')
-        filename = upload_as or os.path.split(filename)[1]
+        close = getattr(file, "close", None)
         try:
-            file.seek(0, 2)
-            if file.tell() > self._config['max_file']:
-                raise ValueError(
-                    "File must be at most {} GB".format(
-                        self._config['max_file'] >> 30))
-        finally:
+            if close:
+                # we do not want the library to close file in case we need to
+                # resume, hence make close a no-op
+                def replacement_close(*args, **kw):
+                    """ No op """
+                    pass
+                setattr(file, "close", replacement_close)
+            filename = upload_as or os.path.split(filename)[1]
             try:
-                file.seek(0)
-            except Exception:
-                pass
+                file.seek(0, 2)
+                if file.tell() > self._config['max_file']:
+                    raise ValueError(
+                        "File must be at most {} GB".format(
+                            self._config['max_file'] >> 30))
+            finally:
+                try:
+                    file.seek(0)
+                except Exception:
+                    pass
 
-        files = Data({'file': {"name": filename, "value": file}},
-                     blocksize=blocksize,
-                     callback=callback)
+            files = Data({'file': {"name": filename, "value": file}},
+                         blocksize=blocksize,
+                         callback=callback)
 
-        headers = {'Origin': 'https://volafile.io'}
-        headers.update(files.headers)
+            headers = {'Origin': 'https://volafile.io'}
+            headers.update(files.headers)
 
-        key, server, file_id = self._generate_upload_key()
-        params = {'room': self.name,
-                  'key': key,
-                  'filename': filename}
+            while True:
+                key, server, file_id = self._generate_upload_key()
+                info = dict(key=key, server=server, file_id=file_id,
+                                     room=self.name, filename=filename,
+                                     len=files.len, resumecount=0)
+                if information_callback:
+                    if information_callback(info) is False:
+                        continue
+                break
 
-        post = self.conn.post("https://{}/upload".format(server),
-                              params=params,
-                              data=files,
-                              headers=headers)
-        post.raise_for_status()
-        return file_id
+            params = {'room': self.name,
+                      'key': key,
+                      'filename': filename}
+
+            try:
+                post = self.conn.post("https://{}/upload".format(server),
+                                      params=params,
+                                      data=files,
+                                      headers=headers)
+                post.raise_for_status()
+
+            except requests.exceptions.ConnectionError as ex:
+                if "aborted" not in repr(ex): # ye, that's nasty but "compatible"
+                    raise
+                while True:
+                    try:
+                        resume = self.conn.get("https://{}/rest/uploadStatus".format(server),
+                                               params={"key": key, "c": 1}).text
+                        resume = json.loads(resume)
+                        resume = resume["receivedBytes"]
+                        if resume <= 0:
+                            raise ConnectionError("Cannot resume")
+                        file.seek(resume)
+                        files = Data({'file': {"name": filename, "value": file}},
+                                     blocksize=blocksize,
+                                     callback=callback,
+                                     logical_offset=resume)
+                        headers.update(files.headers)
+                        params["startAt"] = resume
+                        info["resumecount"] += 1
+                        if information_callback:
+                            information_callback(info)
+                        post = self.conn.post("https://{}/upload".format(server),
+                                              params=params,
+                                              data=files,
+                                              headers=headers)
+                        post.raise_for_status()
+                    except requests.exceptions.ConnectionError as iex:
+                        if "aborted" not in repr(iex): # ye, that's nasty but "compatible"
+                            raise
+                        continue # another day, another try
+                    break # done now
+            return file_id
+        finally:
+            if close:
+                close()
 
     def close(self):
         """Close connection to this room"""

@@ -119,12 +119,13 @@ class Data(object):
     into memory at once
     """
 
-    def __init__(self, values, blocksize=0, encoding="utf-8", callback=None):
+    def __init__(self, values, blocksize=0, encoding="utf-8", callback=None, logical_offset=0):
         self.encoding = encoding or "utf-8"
         self.boundary = generate_boundary()
         self.streams = []
         self.callback = callback or None
         self.blocksize = blocksize
+        self.logical_offset = logical_offset
         if not self.blocksize or self.blocksize <= 0:
             self.blocksize = (1 << 17)
 
@@ -183,7 +184,8 @@ class Data(object):
                             yield val
                             if self.callback:
                                 pos += len(val)
-                                self.callback(pos, total)
+                                self.callback(self.logical_offset + pos,
+                                              self.logical_offset + total)
                             remainder = self.blocksize
                             buf = BytesIO()
                 try:
@@ -198,7 +200,8 @@ class Data(object):
             pos += len(last)
             yield last
             if self.callback:
-                self.callback(pos, total)
+                self.callback(self.logical_offset + pos,
+                              self.logical_offset + total)
 
     def __enter__(self):
         return self
