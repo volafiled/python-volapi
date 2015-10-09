@@ -117,7 +117,7 @@ class ListenerArbitrator:
         if conn.connected:
             conn.sendMessage(payload)
 
-    @call_async
+    @call_sync
     def close(self, conn):
         # pylint: disable=no-self-use
         """Closes a connection"""
