@@ -36,7 +36,7 @@ from .arbritrator import ARBITRATOR, Listeners, Protocol
 from .multipart import Data
 from .utils import html_to_text, random_id, to_json
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
