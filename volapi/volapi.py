@@ -480,7 +480,7 @@ class Room:
                 warnings.warn("unknown config key '{}': {} ({})".
                               format(key, value, type(value)),
                               Warning)
-            except Exception as ex:
+            except Exception:
                 warnings.warn("Failed to handle config key'{}': {} ({})\nThis might be a bug!".
                               format(key, value, type(value)),
                               Warning)
@@ -814,6 +814,7 @@ class ChatMessage:
     def __init__(self, nick, msg, **kw):
         self.nick = nick
         self.msg = msg
+        self.admin = self.logged_in = None
 
         # Optionals
         self.html_msg = kw.get("html_msg", "")
