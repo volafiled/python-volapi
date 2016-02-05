@@ -115,9 +115,9 @@ class Connection(requests.Session):
     def close(self):
         """Closes connection pair"""
 
+        self.listeners.clear()
         ARBITRATOR.close(self.proto)
         super().close()
-        self.listeners.clear()
         del self.room
 
     def subscribe(self, room_name, username, secret_key):
@@ -213,9 +213,8 @@ class Connection(requests.Session):
             if (not forced and not self.must_process) or \
                     not self._queues_enabled:
                 return
-            with ARBITRATOR.condition:
-                ARBITRATOR.condition.notify_all()
             self.must_process = False
+        ARBITRATOR.awaken()
 
     @property
     def _listeners_for_thread(self):
@@ -354,7 +353,7 @@ class Room:
     def connected(self):
         """Room is connected"""
 
-        return bool(self.conn and self.conn.connected)
+        return bool(hasattr(self, "conn") and self.conn.connected)
 
     def add_listener(self, event_type, callback):
         """Add a listener for specific event type.

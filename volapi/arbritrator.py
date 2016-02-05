@@ -14,7 +14,7 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 '''
-# pylint: disable=bad-continuation,broad-except
+# pylint: disable=bad-continuation,broad-except,star-args
 
 import asyncio
 
@@ -23,7 +23,7 @@ from functools import wraps
 from threading import Barrier
 from threading import Condition
 from threading import RLock
-from threading import Thread
+from threading import Thread, Event
 from urllib.parse import urlsplit
 
 from autobahn.asyncio.websocket import WebSocketClientFactory
@@ -63,7 +63,8 @@ def call_sync(func):
                 result = func(self, *args, **kw)
             except Exception as exc:
                 ex = exc
-            barrier.wait()
+            finally:
+                barrier.wait()
 
         self.loop.call_soon_threadsafe(call)
         barrier.wait()
@@ -71,6 +72,43 @@ def call_sync(func):
             raise ex or Exception("Unknown error")
         return result
     return wrapper
+
+class Awakener:
+    """
+    Callable helper thread to awaken non-event loop threads.
+    The issue is that notify_all wil temporarily release the
+    lock to fire the listeners.
+
+    If a listener would interact with volapi from there, this
+    might mean a deadlock.
+    Having the release on another thread will not block the
+    event loop thread, therefore problemb solved
+    """
+    # pylint: disable=too-few-public-methods
+    def __init__(self, condition):
+        self.condition = condition
+        self.count = 0
+        self.lock = RLock()
+        self.event = Event()
+        self.thread = Thread(daemon=True, target=self.target)
+        self.thread.start()
+
+    def __call__(self):
+        with self.lock:
+            self.count += 1
+        self.event.set()
+
+    def target(self):
+        """Thread routine"""
+        while self.event.wait():
+            self.event.clear()
+            while True:
+                with self.lock:
+                    if not self.count:
+                        break
+                    self.count -= 1
+                with self.condition:
+                    self.condition.notify_all()
 
 
 class ListenerArbitrator:
@@ -80,6 +118,7 @@ class ListenerArbitrator:
         self.loop = None
         self.condition = Condition()
         barrier = Barrier(2)
+        self.awaken = Awakener(self.condition)
         self.thread = Thread(daemon=True, target=lambda: self._loop(barrier))
         self.thread.start()
         barrier.wait()
@@ -96,7 +135,7 @@ class ListenerArbitrator:
     def create_connection(self, room, ws_url, agent):
         """Creates a new connection"""
 
-        factory = WebSocketClientFactory(ws_url)
+        factory = WebSocketClientFactory(ws_url, loop=self.loop)
         factory.useragent = agent
         factory.protocol = lambda: room
         ws_url = urlsplit(ws_url)
@@ -200,5 +239,4 @@ class Protocol(WebSocketClientProtocol):
     def onClose(self, clean, code, reason):
         # pylint: disable=unused-argument
         self.connected = False
-        with ARBITRATOR.condition:
-            ARBITRATOR.condition.notify_all()
+
