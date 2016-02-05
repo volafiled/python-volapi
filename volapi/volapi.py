@@ -900,12 +900,12 @@ class File:
         if self.type not in ("video", "audio"):
             raise RuntimeError("Only videos and audio have durations")
         return self.info.get('length') or self.info.get('duration')
-    
+
     @property
     def album(self):
         """Returns album name of audio file"""
 
-        if self.type not in ("audio"):
+        if self.type not in ("audio",):
             raise RuntimeError("Only audio files can have album names")
         return self.info.get('album')
 
@@ -913,7 +913,7 @@ class File:
     def artist(self):
         """Returns artist name of audio file"""
 
-        if self.type not in ("audio"):
+        if self.type not in ("audio",):
             raise RuntimeError("Only audio files can have artist names")
         return self.info.get('artist')
 
@@ -921,7 +921,7 @@ class File:
     def codec(self):
         """Returns codec type of media file"""
 
-        if self.type not in ("video","audio"):
+        if self.type not in ("video", "audio"):
             raise RuntimeError("Only audio and video files can have codecs")
         return self.info.get('codec')
 
@@ -929,7 +929,7 @@ class File:
     def title(self):
         """Returns title of media file"""
 
-        if self.type not in ("video","audio"):
+        if self.type not in ("video", "audio"):
             raise RuntimeError("Only audio and video files can have titles")
         return self.info.get('title')
 
