@@ -222,10 +222,20 @@ class Protocol(WebSocketClientProtocol):
         self.connected = True
 
     def onOpen(self):
-        while True:
-            yield from asyncio.sleep(self.conn.ping_interval)
-            self.conn.send_message("2")
-            self.conn.send_message("4" + to_json([self.max_id]))
+        import logging
+        logger = logging.getLogger(__name__)
+        while self.conn.connected:
+            try:
+                self.conn.send_message("2")
+                self.conn.send_message("4" + to_json([self.max_id]))
+                yield from asyncio.sleep(self.conn.ping_interval)
+            except Exception:
+                logger.exception("Failed to ping")
+                try:
+                    self.conn.close()
+                except Exception:
+                    logger.exception("failed to force close connection after ping error")
+                break
 
     def onMessage(self, new_data, binarybinary):
         # pylint: disable=unused-argument
