@@ -36,6 +36,9 @@ from .arbritrator import ARBITRATOR, Listeners, Protocol
 from .multipart import Data
 from .utils import html_to_text, random_id, to_json
 
+import logging
+logger = logging.getLogger(__name__)
+
 __version__ = "2.2.0"
 
 BASE_URL = "https://volafile.io"
@@ -68,7 +71,11 @@ class Connection(requests.Session):
 
         super().__init__()
 
+        self.proto = None
         self.room = room
+        self.exception = None
+
+        self.lastping = self.lastpong = 0
 
         agent = "Volafile-API/{}".format(__version__)
 
@@ -112,13 +119,19 @@ class Connection(requests.Session):
         self.send_message("4" + to_json(obj))
         self.proto.send_count += 1
 
+    def reraise(self, ex):
+        self.exception = ex
+        self.process_queues(forced=True)
+
     def close(self):
         """Closes connection pair"""
 
         self.listeners.clear()
+        self.proto.connected = False
         ARBITRATOR.close(self.proto)
         super().close()
         del self.room
+        del self.proto
 
     def subscribe(self, room_name, username, secret_key):
         """Make subscribe API call"""
@@ -131,29 +144,81 @@ class Connection(requests.Session):
                              }
         if secret_key:
             subscribe_options['secretToken'] = secret_key
-        obj = [-1, [[0, ["subscribe", subscribe_options]],
-                    0]]
-        self.send_message("4" + to_json(obj))
+        def subscribe():
+            nonlocal subscribe_options, self
+            obj = [-1, [[0, ["subscribe", subscribe_options]],
+                        0]]
+            self.send_message("4" + to_json(obj))
+        subscribe()
+        self.resubscribe = subscribe
+
+    def on_open(self):
+        while self.connected:
+            try:
+                if self.lastping > self.lastpong:
+                    raise IOError("Last ping remained unanswered")
+
+                self.send_message("2")
+                self.send_message("4" + to_json([self.proto.max_id]))
+                self.lastping = time.time()
+                yield from asyncio.sleep(self.ping_interval)
+            except Exception as ex:
+                logger.exception("Failed to ping")
+                try:
+                    try:
+                        raise IOError("Ping failed") from ex
+                    except Exception as ioex:
+                        self.reraise(ioex)
+                except Exception:
+                    logger.exception("failed to force close connection after ping error")
+                break
 
     def on_message(self, new_data):
-        """Processes incoming messages"""
+        """Processes incoming messages according to engine-io rules"""
+        # https://github.com/socketio/engine.io-protocol
 
-        if new_data[0] == '0':
-            json_data = json.loads(new_data[1:])
-            self._ping_interval = float(
-                json_data['pingInterval']) / 1000
-            return
+        logger.debug("new frame [%r]", new_data)
+        try:
+            what = int(new_data[0])
+            data = new_data[1:]
+            data = data and json.loads(data)
+            if what == 0:
+                self._ping_interval = float(data['pingInterval']) / 1000
+                logger.debug("adjusted ping interval")
+                return
 
-        if new_data[0] == '1':
-            self.close()
-            return
+            if what == 1:
+                logger.debug("received close")
+                self.reraise(IOError("Connection closed remotely"))
+                return
 
-        if new_data[0] == '4' and hasattr(self, "room"):
-            json_data = json.loads(new_data[1:])
-            if isinstance(json_data, list) and len(json_data) > 1:
-                self.proto.max_id = int(json_data[1][-1])
-                self.room.add_data(json_data)
-            return
+            if what == 3:
+                self.lastpong = time.time()
+                logger.debug("received a pong")
+                return
+
+            if what == 4:
+                if not hasattr(self, "room"):
+                    logger.warn("received out of bounds message [%r]", data)
+                    return
+                logger.debug("received message %r", data)
+                if isinstance(data, list) and len(data) > 1:
+                    self.proto.max_id = int(data[1][-1])
+                    self.room.add_data(data)
+                elif "session" in data:
+                    self.proto.session = data
+                else:
+                    logger.warn("unhandled message frame type %r", data)
+                return
+
+            if what == 6:
+                logger.debug("received noop")
+                self.send_message("5")
+                return
+
+            logger.debug("unhandled message: [%d] [%r]", what, data)
+        except Exception as ex:
+            self.reraise(ex)
 
     def _get_checksums(self):
         """Gets the main checksums"""
@@ -228,6 +293,9 @@ class Connection(requests.Session):
     def validate_listeners(self):
         """Validates that some listeners are actually registered"""
 
+        if self.exception:
+            raise self.exception
+
         listeners = self._listeners_for_thread
         if not sum(len(l) for l in listeners):
             raise ValueError("No active listeners")
@@ -245,6 +313,8 @@ class Connection(requests.Session):
     def run_queues(self):
         """Run all queues that have data queued"""
 
+        if self.exception:
+            raise self.exception
         listeners = self._listeners_for_thread
         return sum(l.process() for l in listeners) > 0
 
@@ -280,6 +350,10 @@ class Room:
 
             if subscribe:
                 self.conn.subscribe(self.name, self.user.name, secret_key)
+
+            # check for first exception ever
+            if self.conn.exception:
+                raise self.conn.exception
         except Exception:
             self.close()
             raise

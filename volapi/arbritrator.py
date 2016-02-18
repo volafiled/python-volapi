@@ -20,16 +20,22 @@ import asyncio
 
 from collections import namedtuple
 from functools import wraps
+from threading import get_ident
 from threading import Barrier
 from threading import Condition
 from threading import RLock
 from threading import Thread, Event
+from time import time
 from urllib.parse import urlsplit
 
 from autobahn.asyncio.websocket import WebSocketClientFactory
 from autobahn.asyncio.websocket import WebSocketClientProtocol
 
 from .utils import to_json
+
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 def call_async(func):
@@ -40,7 +46,10 @@ def call_async(func):
         """Wraps instance method to be called on loop thread"""
         def call():
             """Calls function on loop thread"""
-            func(self, *args, **kw)
+            try:
+                func(self, *args, **kw)
+            except:
+                logger.exception("failed to call async [%r] with [%r] [%r]", func, args, kw)
 
         self.loop.call_soon_threadsafe(call)
     return wrapper
@@ -52,6 +61,11 @@ def call_sync(func):
     @wraps(func)
     def wrapper(self, *args, **kw):
         """Wraps instance method to be called on loop thread"""
+
+        # Just return when already on the event thread
+        if self.thread.ident == get_ident():
+            return func(self, *args, **kw)
+
         barrier = Barrier(2)
         result = None
         ex = None
@@ -129,7 +143,11 @@ class ListenerArbitrator:
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
         barrier.wait()
-        self.loop.run_forever()
+        try:
+            self.loop.run_forever()
+        except Exception as ex:
+            import sys
+            sys.exit(1)
 
     @call_sync
     def create_connection(self, room, ws_url, agent):
@@ -147,21 +165,31 @@ class ListenerArbitrator:
         asyncio.async(conn, loop=self.loop)
 
     @call_async
-    def send_message(self, conn, payload):
+    def send_message(self, proto, payload):
         """Sends a message"""
         # pylint: disable=no-self-use
 
-        if not isinstance(payload, bytes):
-            payload = payload.encode("utf-8")
-        if conn.connected:
-            conn.sendMessage(payload)
+        try:
+            if not isinstance(payload, bytes):
+                payload = payload.encode("utf-8")
+            if not proto.connected:
+                raise IOError("not connected")
+            proto.sendMessage(payload)
+            logger.debug("sent: %r", payload)
+        except Exception as ex:
+            logger.exception("Failed to send message")
+            proto.reraise(ex)
 
     @call_sync
-    def close(self, conn):
+    def close(self, proto):
         # pylint: disable=no-self-use
         """Closes a connection"""
 
-        conn.sendClose()
+        try:
+            proto.sendClose()
+        except Exception as ex:
+            logger.exception("Failed to send close")
+            proto.reraise(ex)
 
 
 ARBITRATOR = ListenerArbitrator()
@@ -217,36 +245,38 @@ class Protocol(WebSocketClientProtocol):
         self.connected = False
         self.max_id = 0
         self.send_count = 1
+        self.session = None
 
     def onConnect(self, response):
         self.connected = True
 
     def onOpen(self):
-        import logging
-        logger = logging.getLogger(__name__)
-        while self.conn.connected:
-            try:
-                self.conn.send_message("2")
-                self.conn.send_message("4" + to_json([self.max_id]))
-                yield from asyncio.sleep(self.conn.ping_interval)
-            except Exception:
-                logger.exception("Failed to ping")
-                try:
-                    self.conn.close()
-                except Exception:
-                    logger.exception("failed to force close connection after ping error")
-                break
+        yield from self.conn.on_open()
 
     def onMessage(self, new_data, binarybinary):
         # pylint: disable=unused-argument
         if not new_data:
+            logger.warn("empty frame!")
             return
 
-        if isinstance(new_data, bytes):
-            new_data = new_data.decode("utf-8")
-        self.conn.on_message(new_data)
+        try:
+            if isinstance(new_data, bytes):
+                new_data = new_data.decode("utf-8")
+            self.conn.on_message(new_data)
+        except:
+            logger.exception("something went horribly wrong")
 
     def onClose(self, clean, code, reason):
         # pylint: disable=unused-argument
         self.connected = False
+
+    def reraise(self, ex):
+        if hasattr(self, "conn"):
+            self.conn.reraise(ex)
+        else:
+            logger.error("Cannot reraise")
+
+    def __repr__(self):
+        return "<Protocol({},max_id={},send_count={})>".format(
+            self.session, self.max_id, self.send_count)
 
