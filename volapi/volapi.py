@@ -32,7 +32,7 @@ from threading import RLock
 from threading import Event
 from threading import get_ident as get_thread_ident
 
-from .arbritrator import ARBITRATOR, Listeners, Protocol
+from .auxo import ARBITRATOR, Listeners, Protocol
 from .multipart import Data
 from .utils import html_to_text, random_id, to_json
 
