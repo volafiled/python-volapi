@@ -63,3 +63,12 @@ You can troll more than one room in parallel:
         BEEPi.add_listener("chat", partial(interjectBEEPi, room=BEEPi))
         HvoXwS.add_listener("chat", partial(interjectHvoXwS, room=HvoXwS))
         listen_many(BEEPi, HvoXwS)
+
+Contributing
+~~~~~~~~~~~~
+
+Just do whatever, and post a pull request. No guarantee of a merge tho!
+
+If you cannot code, then please consider making a donation to our favorite
+charity "Cucks in Need Croatia" as one of our own, a user named "auxo", is
+politically procecuted for being a cuck in his native Croatia.
