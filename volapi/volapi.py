@@ -647,15 +647,18 @@ class Room:
 
         return self._user_count
 
+    def _expire_files(self):
+        """Because files are always unclean"""
+        self._files = OrderedDict(
+            item for item in self._files.items() if not item[1].expired)
+
     @property
     def files(self):
         """Returns list of File objects for this room.
         Note: This will only reflect the files at the time
         this method was called."""
 
-        for fid in self._files.keys():
-            if self._files[fid].expired:
-                del self._files[fid]
+        self._expire_files()
         return list(self._files.values())
 
     @property
@@ -664,9 +667,7 @@ class Room:
         Note: This will only reflect the files at the time
         this method was called."""
 
-        for fid in self._files.keys():
-            if self._files[fid].expired:
-                del self._files[fid]
+        self._expire_files()
         return dict(self._files)
 
     def get_user_stats(self, name):
