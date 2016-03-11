@@ -120,6 +120,7 @@ class Connection(requests.Session):
         self.proto.send_count += 1
 
     def reraise(self, ex):
+        """Reraise an exception passed by the event thread"""
         self.exception = ex
         self.process_queues(forced=True)
 
@@ -145,6 +146,7 @@ class Connection(requests.Session):
         if secret_key:
             subscribe_options['secretToken'] = secret_key
         def subscribe():
+            """Subscribe wrapper is wrapped"""
             nonlocal subscribe_options, self
             obj = [-1, [[0, ["subscribe", subscribe_options]],
                         0]]
@@ -153,6 +155,7 @@ class Connection(requests.Session):
         self.resubscribe = subscribe
 
     def on_open(self):
+        """DingDongmaster the connection is open"""
         while self.connected:
             try:
                 if self.lastping > self.lastpong:
@@ -294,6 +297,7 @@ class Connection(requests.Session):
         """Validates that some listeners are actually registered"""
 
         if self.exception:
+            # pylint: disable=raising-bad-type
             raise self.exception
 
         listeners = self._listeners_for_thread
@@ -314,6 +318,7 @@ class Connection(requests.Session):
         """Run all queues that have data queued"""
 
         if self.exception:
+            # pylint: disable=raising-bad-type
             raise self.exception
         listeners = self._listeners_for_thread
         return sum(l.process() for l in listeners) > 0
@@ -353,6 +358,7 @@ class Room:
 
             # check for first exception ever
             if self.conn.exception:
+                # pylint: disable=raising-bad-type
                 raise self.conn.exception
         except Exception:
             self.close()
