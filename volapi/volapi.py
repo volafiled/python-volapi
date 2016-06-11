@@ -143,6 +143,8 @@ class Connection(requests.Session):
                              "checksum2": checksum2,
                              "nick": username
                              }
+        if self.room.user.logged_in:
+            subscribe_options['session'] = self.room.user.session
         if secret_key:
             subscribe_options['secretToken'] = secret_key
         def subscribe():
@@ -333,7 +335,7 @@ class Room:
     """
     # pylint: disable=unused-argument
 
-    def __init__(self, name=None, user=None, subscribe=True):
+    def __init__(self, name=None, user=None, subscribe=True, other=None):
         """name is the room name, if none then makes a new room
         user is your user name, if none then generates one for you"""
 
@@ -345,15 +347,22 @@ class Room:
         self._filereqs = {}
 
         self.conn = Connection(self)
+        if other:
+            self.conn.cookies.update(other.conn.cookies)
         try:
             secret_key = self._connect()
 
             if not subscribe and not user:
-                user = random_id(6)
+                if other and other.user and other.user.name:
+                    user = other.user.name
+                else:
+                    user = random_id(6)
             self.user = User(user, self.conn, self._config["max_nick"])
             self.owner = bool(secret_key)
 
             if subscribe:
+                if other and other.user and other.user.logged_in:
+                    self.user.login_transplant(other.user)
                 self.conn.subscribe(self.name, self.user.name, secret_key)
 
             # check for first exception ever
@@ -1050,6 +1059,7 @@ class User:
         self.name = name
         self.conn = conn
         self.logged_in = False
+        self.session = None
 
     def login(self, password):
         """Attempts to log in as the current user with given password"""
@@ -1064,9 +1074,24 @@ class User:
         if 'error' in json_resp:
             raise ValueError("Login unsuccessful: {}".
                              format(json_resp["error"]))
-        self.conn.make_call("useSession", [json_resp["session"]])
-        self.conn.cookies.update({"session": json_resp["session"]})
+        self.session = json_resp["session"]
+        self.conn.make_call("useSession", [self.session])
+        self.conn.cookies.update({"session": self.session})
         self.logged_in = True
+        return True
+
+    def login_transplant(self, other):
+        """Attempts to carry over the login state from another room"""
+
+        if not other.logged_in:
+            raise ValueError("Other room is not logged in")
+        cookie = other.session
+        if not cookie:
+            raise ValueError("Other room has no cookie")
+        self.conn.cookies.update({"session": cookie})
+        self.session = cookie
+        self.logged_in = True
+        return True
 
     def logout(self):
         """Logs your user out"""
