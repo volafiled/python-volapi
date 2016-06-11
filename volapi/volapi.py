@@ -1033,6 +1033,10 @@ class File:
         add["uploader"] = info['user']
         self._event.set()
 
+    def delete(self):
+        """ Remove this file """
+        self.conn.make_call("deleteFiles", args=[[self.id,]])
+
 
 class User:
     """Used by Room. Currently not very useful by itself"""
