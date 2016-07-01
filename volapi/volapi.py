@@ -212,6 +212,9 @@ class Connection(requests.Session):
                     self.room.add_data(data)
                 elif "session" in data:
                     self.proto.session = data
+                elif data == [1]:
+                    # ignore
+                    pass
                 else:
                     logger.warn("unhandled message frame type %r", data)
                 return
