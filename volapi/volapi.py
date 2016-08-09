@@ -215,6 +215,8 @@ class Connection(requests.Session):
                 elif data == [1]:
                     # ignore
                     pass
+                elif data == [0]:
+                    raise IOError("Force disconnect?")
                 else:
                     logger.warn("unhandled message frame type %r", data)
                 return
