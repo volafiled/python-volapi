@@ -232,9 +232,12 @@ class Connection(requests.Session):
         """Gets the main checksums"""
 
         try:
-            text = self.get(
-                "https://static.volafile.io/static/js/main.js?c=" + self.room.cs2).text
-            cs1 = re.search(r'config\.checksum\s*=\s*"(\w+?)"', text).group(1)
+            if False:
+                text = self.get(
+                    "https://static.volafile.io/static/js/main.js?c=" + self.room.cs2).text
+                cs1 = re.search(r'config\.checksum\s*=\s*"(\w+?)"', text).group(1)
+            else:
+                cs1 = self.room.cs2
 
             return cs1, self.room.cs2
         except Exception:
