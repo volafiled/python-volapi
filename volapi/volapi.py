@@ -894,6 +894,10 @@ class Room:
                                                 "room": self.name}).text)
         return info['key'], info['server'], info['file_id']
 
+    def delete_files(self, ids):
+        """ Remove this file """
+        self.conn.make_call("deleteFiles", args=[ids])
+
 
 class ChatMessage:
     """Basically a struct for a chat message. self.msg holds the
