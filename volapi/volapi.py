@@ -539,7 +539,7 @@ class Room:
 
         options = data['options']
         admin = 'admin' in options or 'staff' in options
-        user = 'user' in options or admin
+        user = ('user' in options or admin) and 'profile' in options
 
         chat_message = ChatMessage(data["nick"], msg,
                                    files=files,
