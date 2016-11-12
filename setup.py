@@ -39,8 +39,7 @@ setup(
     url='https://github.com/RealDolos/volapi',
     license='GPLv3',
     author='RealDolos',
-    author_email='dolosthegreat@safe-mail.net',
-    test_suite="test_volapi.TestVolapi",
+    author_email='dolos@cock.li',
     packages=['volapi'],
     include_package_data=True,
     classifiers=[
