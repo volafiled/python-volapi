@@ -499,9 +499,10 @@ class Room:
     def _handle_delete_file(self, data, data_type):
         """Handle files being removed"""
 
-        # XXX: Should this notify the file listener as well,
-        # and if so, how?
+        file = self._files.get(data)
         del self._files[data]
+        if file:
+            self.conn.enqueue_data("delete_file", file)
 
     def _handle_chat(self, data, data_type):
         """Handle chat messages"""
