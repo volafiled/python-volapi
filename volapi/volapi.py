@@ -544,8 +544,9 @@ class Room:
                     Warning)
 
         options = data['options']
-        admin = 'admin' in options or 'staff' in options
-        user = ('user' in options or admin) and 'profile' in options
+        admin = 'admin' in options
+        staff = 'staff' in options
+        user = ('user' in options or admin or staff) and 'profile' in options
 
         chat_message = ChatMessage(data["nick"], msg,
                                    files=files,
@@ -553,7 +554,8 @@ class Room:
                                    html_msg=html_msg,
                                    logged_in=user,
                                    donor="donator" in options,
-                                   admin=admin)
+                                   admin=admin,
+                                   staff=staff)
         self.conn.enqueue_data("chat", chat_message)
 
     def _handle_changed_config(self, change, data_type):
@@ -927,7 +929,7 @@ class ChatMessage:
         self.html_msg = kw.get("html_msg", "")
         for key in ("files", "rooms"):
             setattr(self, key, kw.get(key, ()))
-        for key in ("logged_in", "donor", "admin"):
+        for key in ("logged_in", "donor", "admin", "staff"):
             setattr(self, key, kw.get(key, False))
 
     def __repr__(self):
