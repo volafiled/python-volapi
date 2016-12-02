@@ -87,6 +87,7 @@ class Connection(requests.Session):
         self._queues_enabled = True
 
         self._ping_interval = 20  # default
+        self.resubscribe = None
 
         ws_url = ("{}?rn={}&EIO=3&transport=websocket&t={}".
                   format(BASE_WS_URL, random_id(6),
