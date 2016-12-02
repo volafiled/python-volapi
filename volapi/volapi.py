@@ -39,7 +39,7 @@ from .utils import delayed_close, html_to_text, random_id, to_json
 import logging
 LOGGER = logging.getLogger(__name__)
 
-__version__ = "3.0.0"
+__version__ = "4.0.0"
 
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
