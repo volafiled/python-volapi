@@ -34,7 +34,7 @@ from threading import get_ident as get_thread_ident
 
 from .auxo import ARBITRATOR, Listeners, Protocol
 from .multipart import Data
-from .utils import html_to_text, random_id, to_json
+from .utils import delayed_close, html_to_text, random_id, to_json
 
 import logging
 LOGGER = logging.getLogger(__name__)
@@ -731,16 +731,9 @@ class Room:
         You can also specify a blocksize and a callback if you wish.
         Returns the file's id on success and None on failure."""
 
-        file = filename if hasattr(filename, "read") else open(filename, 'rb')
-        close = getattr(file, "close", None)
-        try:
-            if close:
-                # we do not want the library to close file in case we need to
-                # resume, hence make close a no-op
-                def replacement_close(*args, **kw):
-                    """ No op """
-                    pass
-                setattr(file, "close", replacement_close)
+        with delayed_close(filename
+                if hasattr(filename, "read")
+                else open(filename, 'rb')) as file:
             filename = upload_as or os.path.split(filename)[1]
             try:
                 file.seek(0, 2)
@@ -764,8 +757,8 @@ class Room:
             while True:
                 key, server, file_id = self._generate_upload_key()
                 info = dict(key=key, server=server, file_id=file_id,
-                                     room=self.name, filename=filename,
-                                     len=files.len, resumecount=0)
+                            room=self.name, filename=filename,
+                            len=files.len, resumecount=0)
                 if information_callback:
                     if information_callback(info) is False:
                         continue
@@ -775,17 +768,18 @@ class Room:
                       'key': key,
                       'filename': filename}
 
-            try:
-                post = self.conn.post("https://{}/upload".format(server),
-                                      params=params,
-                                      data=files,
-                                      headers=headers)
-                post.raise_for_status()
+            while True:
+                try:
+                    post = self.conn.post("https://{}/upload".format(server),
+                                          params=params,
+                                          data=files,
+                                          headers=headers)
+                    post.raise_for_status()
+                    break
 
-            except requests.exceptions.ConnectionError as ex:
-                if "aborted" not in repr(ex): # ye, that's nasty but "compatible"
-                    raise
-                while True:
+                except requests.exceptions.ConnectionError as ex:
+                    if "aborted" not in repr(ex): # ye, that's nasty but "compatible"
+                        raise
                     try:
                         resume = self.conn.get("https://{}/rest/uploadStatus".format(server),
                                                params={"key": key, "c": 1}).text
@@ -803,20 +797,11 @@ class Room:
                         info["resumecount"] += 1
                         if information_callback:
                             information_callback(info)
-                        post = self.conn.post("https://{}/upload".format(server),
-                                              params=params,
-                                              data=files,
-                                              headers=headers)
-                        post.raise_for_status()
                     except requests.exceptions.ConnectionError as iex:
                         if "aborted" not in repr(iex): # ye, that's nasty but "compatible"
                             raise
                         continue # another day, another try
-                    break # done now
             return file_id
-        finally:
-            if close:
-                close()
 
     def close(self):
         """Close connection to this room"""

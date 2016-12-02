@@ -8,6 +8,7 @@ import json
 import random
 import string
 
+from contextlib import contextmanager
 from html.parser import HTMLParser
 
 
@@ -50,3 +51,21 @@ def to_json(obj):
     """Create a compact JSON string from an object"""
 
     return json.dumps(obj, separators=(',', ':'))
+
+@contextmanager
+def delayed_close(closable):
+    """Delay close until this contextmanager dies"""
+    close = getattr(closable, "close", None)
+    if close:
+        # we do not want the library to close file in case we need to
+        # resume, hence make close a no-op
+        def replacement_close(*args, **kw):
+            """ No op """
+            pass
+        setattr(closable, "close", replacement_close)
+    try:
+        yield closable
+    finally:
+        if close:
+            setattr(closable, "close", close)
+            closable.close()
