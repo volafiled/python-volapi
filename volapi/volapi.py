@@ -28,6 +28,7 @@ import requests
 
 from collections import OrderedDict
 from collections import defaultdict
+from contextlib import suppress
 from threading import RLock
 from threading import Event
 from threading import get_ident as get_thread_ident
@@ -512,8 +513,9 @@ class Room:
         """Handle files being removed"""
 
         file = self._files.get(data)
-        del self._files[data]
         if file:
+            with suppress(KeyError):
+                del self._files[data]
             self.conn.enqueue_data("delete_file", file)
 
     def _handle_chat(self, data, data_type):
@@ -624,7 +626,8 @@ class Room:
         if not file:
             file = self._filereqs.get(data["id"])
             if file:
-                del self._filereqs[data["id"]]
+                with suppress(KeyError):
+                    del self._filereqs[data["id"]]
         if file:
             file.add_info(data)
 
