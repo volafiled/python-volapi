@@ -120,6 +120,17 @@ class Connection(requests.Session):
         self.send_message("4" + to_json(obj))
         self.proto.send_count += 1
 
+    def make_api_call(self, call, *args, **kw):
+        """Make a REST API call"""
+
+        headers = kw.get("headers") or {}
+        headers.update({
+            "Origin": "https://volafile.io",
+            "Referer": "https://volafile.io/r/{}".format(self.room.name)
+            })
+        kw["headers"] = headers
+        return self.get(BASE_REST_URL + call, *args, **kw).json()
+
     def reraise(self, ex):
         """Reraise an exception passed by the event thread"""
         self.exception = ex
@@ -354,6 +365,7 @@ class Room:
         self._user_count = 0
         self._files = OrderedDict()
         self._filereqs = {}
+        self._uploadCount = 0
 
         self.conn = Connection(self)
         if other:
@@ -704,8 +716,7 @@ class Room:
         if req.status_code != 200 or not name:
             return None
 
-        return json.loads(self.conn.get(BASE_REST_URL + "getUserInfo",
-                                        params={"name": name}).text)
+        return self.conn.make_api_call("getUserInfo", params={"name": name})
 
     def post_chat(self, msg, is_me=False):
         """Posts a msg to this room's chat. Set me=True if you want to /me"""
@@ -888,9 +899,9 @@ class Room:
         while not self.user.name:
             with ARBITRATOR.condition:
                 ARBITRATOR.condition.wait()
-        info = json.loads(self.conn.get(BASE_REST_URL + "getUploadKey",
-                                        params={"name": self.user.name,
-                                                "room": self.name}).text)
+        info = self.conn.make_api_call("getUploadKey", params={
+            "name": self.user.name, "room": self.name, "c": self._uploadCount})
+        self._uploadCount += 1
         return info['key'], info['server'], info['file_id']
 
     def delete_files(self, ids):
@@ -1075,8 +1086,7 @@ class User:
 
         params = {"name": self.name,
                   "password": password}
-        json_resp = json.loads(self.conn.get(BASE_REST_URL + "login",
-                                             params=params).text)
+        json_resp = self.conn.make_api_call("login", params=params)
         if 'error' in json_resp:
             raise ValueError("Login unsuccessful: {}".
                              format(json_resp["error"]))
@@ -1125,8 +1135,7 @@ class User:
             raise ValueError("Password must be at least 8 characters.")
 
         params = {"name": self.name, "password": password}
-        json_resp = json.loads(self.conn.get(BASE_REST_URL + "register",
-                                             params=params).text)
+        json_resp = self.conn.make_api_call("register", params=params)
 
         if 'error' in json_resp:
             raise ValueError("User '{}' is already registered".
@@ -1146,8 +1155,7 @@ class User:
                   "password": new_pass,
                   "old_password": old_pass
                   }
-        json_resp = json.loads(self.conn.get(BASE_REST_URL + "changePassword",
-                                             params=params).text)
+        json_resp = self.conn.make_api_call("changePassword", params=params)
 
         if 'error' in json_resp:
             raise ValueError("Wrong password.")
