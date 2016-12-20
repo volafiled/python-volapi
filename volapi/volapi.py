@@ -90,11 +90,18 @@ class Connection(requests.Session):
         self._ping_interval = 20  # default
         self.resubscribe = None
 
-        ws_url = ("{}?rn={}&EIO=3&transport=websocket&t={}".
+        self.ws_url = ("{}?rn={}&EIO=3&transport=websocket&t={}".
                   format(BASE_WS_URL, random_id(6),
                          int(time.time() * 1000)))
         self.proto = Protocol(self)
-        ARBITRATOR.create_connection(self.proto, ws_url, agent)
+
+    def connect(self):
+        ARBITRATOR.create_connection(
+            self.proto,
+            self.ws_url,
+            self.headers["User-Agent"],
+            self.cookies
+            )
 
     @property
     def ping_interval(self):
@@ -371,6 +378,7 @@ class Room:
         self.conn = Connection(self)
         if other:
             self.conn.cookies.update(other.conn.cookies)
+        self.conn.connect()
         try:
             secret_key = self._connect()
 
@@ -382,9 +390,9 @@ class Room:
             self.user = User(user, self.conn, self._config["max_nick"])
             self.owner = bool(secret_key)
 
+            if subscribe and other and other.user and other.user.logged_in:
+                self.user.login_transplant(other.user)
             if subscribe:
-                if other and other.user and other.user.logged_in:
-                    self.user.login_transplant(other.user)
                 self.conn.subscribe(self.name, self.user.name, secret_key)
 
             # check for first exception ever

@@ -19,6 +19,8 @@ from urllib.parse import urlsplit
 
 from autobahn.asyncio.websocket import WebSocketClientFactory
 from autobahn.asyncio.websocket import WebSocketClientProtocol
+from requests import Request
+from requests.cookies import get_cookie_header
 
 from .utils import to_json
 
@@ -139,17 +141,28 @@ class ListenerArbitrator:
             sys.exit(1)
 
     @call_sync
-    def create_connection(self, room, ws_url, agent):
+    def create_connection(self, room, ws_url, agent, cookies):
         """Creates a new connection"""
 
-        factory = WebSocketClientFactory(ws_url, loop=self.loop)
+        urlparts = urlsplit(ws_url)
+        req = Request("GET", ws_url)
+        cookies = get_cookie_header(cookies, req)
+        if cookies:
+            headers = dict(Cookie=cookies)
+        else:
+            headers = None
+
+        factory = WebSocketClientFactory(
+            ws_url,
+            headers=headers,
+            loop=self.loop
+            )
         factory.useragent = agent
         factory.protocol = lambda: room
-        ws_url = urlsplit(ws_url)
         conn = self.loop.create_connection(factory,
-                                           host=ws_url.netloc,
-                                           port=ws_url.port or 443,
-                                           ssl=ws_url.scheme == "wss"
+                                           host=urlparts.netloc,
+                                           port=urlparts.port or 443,
+                                           ssl=urlparts.scheme == "wss",
                                            )
         asyncio.async(conn, loop=self.loop)
 
