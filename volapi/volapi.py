@@ -42,6 +42,7 @@ LOGGER = logging.getLogger(__name__)
 
 __version__ = "4.0.0"
 
+MAX_UNACKED = 10
 BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
 BASE_REST_URL = BASE_URL + "/rest/"
@@ -72,7 +73,6 @@ class Connection(requests.Session):
 
         super().__init__()
 
-        self.proto = None
         self.room = room
         self.exception = None
 
@@ -94,6 +94,7 @@ class Connection(requests.Session):
                   format(BASE_WS_URL, random_id(6),
                          int(time.time() * 1000)))
         self.proto = Protocol(self)
+        self.last_ack = self.proto.max_id
 
     def connect(self):
         ARBITRATOR.create_connection(
@@ -119,6 +120,14 @@ class Connection(requests.Session):
         """Send a message"""
 
         ARBITRATOR.send_message(self.proto, payload)
+
+    def send_ack(self):
+        """Send an ack message"""
+        if self.last_ack == self.proto.max_id:
+            return
+        LOGGER.debug("ack (%d)", self.proto.max_id)
+        self.last_ack = self.proto.max_id
+        self.send_message("4" + to_json([self.proto.max_id]))
 
     def make_call(self, fun, args):
         """Makes a regular API call"""
@@ -184,7 +193,7 @@ class Connection(requests.Session):
                     raise IOError("Last ping remained unanswered")
 
                 self.send_message("2")
-                self.send_message("4" + to_json([self.proto.max_id]))
+                self.send_ack()
                 self.lastping = time.time()
                 yield from asyncio.sleep(self.ping_interval)
             except Exception as ex:
@@ -224,11 +233,16 @@ class Connection(requests.Session):
 
             if what == 4:
                 if not hasattr(self, "room"):
-                    LOGGER.warn("received out of bounds message [%r]", data)
+                    LOGGER.debug("received out of bounds message [%r]", data)
                     return
                 LOGGER.debug("received message %r", data)
                 if isinstance(data, list) and len(data) > 1:
-                    self.proto.max_id = int(data[1][-1])
+                    new_ack = int(data[1][-1])
+                    need_ack = new_ack > self.proto.max_id + MAX_UNACKED
+                    self.proto.max_id = new_ack
+                    if need_ack:
+                        LOGGER.debug("needing to ack (%d/%d)", new_ack, self.proto.max_id)
+                        self.send_ack()
                     self.room.add_data(data)
                 elif "session" in data:
                     self.proto.session = data
