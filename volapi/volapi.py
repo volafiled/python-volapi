@@ -237,11 +237,12 @@ class Connection(requests.Session):
                     return
                 LOGGER.debug("received message %r", data)
                 if isinstance(data, list) and len(data) > 1:
-                    new_ack = int(data[1][-1])
-                    need_ack = new_ack > self.proto.max_id + MAX_UNACKED
-                    self.proto.max_id = new_ack
+                    our_ack, data = data[0], data[1:]
+                    last_ack = int(data[-1][-1])
+                    need_ack = last_ack > self.proto.max_id + MAX_UNACKED
+                    self.proto.max_id = last_ack
                     if need_ack:
-                        LOGGER.debug("needing to ack (%d/%d)", new_ack, self.proto.max_id)
+                        LOGGER.debug("needing to ack (%d/%d)", last_ack, self.proto.max_id)
                         self.send_ack()
                     self.room.add_data(data)
                 elif "session" in data:
@@ -507,13 +508,13 @@ class Room:
             self.add_listener("user_count", onusercount)
         return self.conn.listen()
 
-    def _handle_user_count(self, data, data_type):
+    def _handle_user_count(self, data, _):
         """Handle user count changes"""
 
         self._user_count = data
         self.conn.enqueue_data("user_count", self._user_count)
 
-    def _handle_files(self, data, data_type):
+    def _handle_files(self, data, _):
         """Handle new files being uploaded"""
 
         files = data['files']
@@ -531,7 +532,7 @@ class Room:
                 LOGGER.exception("bad")
                 pprint.pprint(file)
 
-    def _handle_delete_file(self, data, data_type):
+    def _handle_delete_file(self, data, _):
         """Handle files being removed"""
 
         file = self._files.get(data)
@@ -540,7 +541,7 @@ class Room:
                 del self._files[data]
             self.conn.enqueue_data("delete_file", file)
 
-    def _handle_chat(self, data, data_type):
+    def _handle_chat(self, data, _):
         """Handle chat messages"""
 
         files = []
@@ -595,7 +596,7 @@ class Room:
                                    staff=staff)
         self.conn.enqueue_data("chat", chat_message)
 
-    def _handle_changed_config(self, change, data_type):
+    def _handle_changed_config(self, change, _):
         """Handle configuration changes"""
 
         try:
@@ -629,19 +630,19 @@ class Room:
         finally:
             self.conn.enqueue_data("config", self)
 
-    def _handle_chat_name(self, data, data_type):
+    def _handle_chat_name(self, data, _):
         """Handle user name changes"""
 
         self.user.name = data
         self.conn.enqueue_data("user", self.user)
 
-    def _handle_owner(self, data, data_type):
+    def _handle_owner(self, data, _):
         """Handle room owner changes"""
 
         self.owner = data['owner']
         self.conn.enqueue_data("owner", self.owner)
 
-    def _handle_fileinfo(self, data, data_type):
+    def _handle_fileinfo(self, data, _):
         """Handle file information responses"""
 
         file = self._files.get(data["id"])
@@ -653,12 +654,12 @@ class Room:
         if file:
             file.add_info(data)
 
-    def _handle_time(self, data, data_type):
+    def _handle_time(self, data, _):
         """Handle time changes"""
 
         self.conn.enqueue_data("time", data / 1000)
 
-    def _handle_submitChat(self, data, data_type):
+    def _handle_submitChat(self, data, _):
         """Handle successfully submitted chat message notifications"""
 
         # pylint: disable=invalid-name
@@ -666,10 +667,10 @@ class Room:
         self.conn.enqueue_data("chat_success", data)
         self.conn.enqueue_data("submitChat", data)
 
-    def _handle_generic(self, data, data_type):
+    def _handle_generic(self, data, target):
         """Handle generic notifications"""
 
-        self.conn.enqueue_data(data_type, data)
+        self.conn.enqueue_data(target, data)
 
     _handle_update_assets = _handle_generic
     _handle_subscribed = _handle_generic
@@ -677,31 +678,41 @@ class Room:
     _handle_login = _handle_generic
     _handle_room_old = _handle_generic
 
-    def _handle_unhandled(self, data, data_type):
+    def _handle_unhandled(self, data, target):
         """Handle life, the universe and the rest"""
 
         if not self:
             raise ValueError(self)
         warnings.warn("unknown data type '{}' with data '{}'".
-                      format(data_type, data),
+                      format(target, data),
                       Warning)
 
     def add_data(self, rawdata):
         """Add data to given room's state"""
 
-        for item in rawdata[1:]:
+        for data in rawdata:
             try:
-                data_type = item[0][1][0]
+                item = data[0]
+                if item[0] == 2:
+                    # Flush messages but we got nothing to flush
+                    continue
+                if item[0] != 0:
+                    warnings.warn(
+                        "Unknown message type '{}'".format(item[0]),
+                        Warning)
+                    continue
+                item = item[1]
+                target = item[0]
+                try:
+                    data = item[1]
+                except IndexError:
+                    data = dict()
+                method = getattr(self, "_handle_" + target,
+                                 self._handle_unhandled)
+                method(data, target)
             except IndexError:
-                data_type = None
-            try:
-                data = item[0][1][1]
-            except IndexError:
-                data = dict()
+                LOGGER.warning("Wrongly constructed message received: %r", data)
 
-            method = getattr(self, "_handle_" + data_type,
-                             self._handle_unhandled)
-            method(data, data_type)
         self.conn.process_queues()
 
     @property
