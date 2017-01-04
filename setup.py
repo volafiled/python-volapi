@@ -34,7 +34,7 @@ def find_version(filename):
 setup(
     name='volapi',
     version=find_version('volapi/volapi.py'),
-    description='RESTful API for Volafile.io',
+    description='API for Volafile.io',
     long_description=open('README.rst', 'r').read(),
     url='https://github.com/RealDolos/volapi',
     license='GPLv3',
@@ -51,6 +51,7 @@ setup(
         'Programming Language :: Python',
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
+        'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3 :: Only',
         'Topic :: Software Development :: Libraries :: Python Modules',
     ],
