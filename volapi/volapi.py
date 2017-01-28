@@ -717,7 +717,7 @@ class Room:
 
         return self.conn.make_api_call("getUserInfo", params={"name": name})
 
-    def post_chat(self, msg, is_me=False):
+    def post_chat(self, msg, is_me=False, is_admin=False):
         """Posts a msg to this room's chat. Set me=True if you want to /me"""
 
         if len(msg) > self._config['max_message']:
@@ -728,6 +728,9 @@ class Room:
         while not self.user.name:
             with ARBITRATOR.condition:
                 ARBITRATOR.condition.wait()
+        if is_admin:
+            self.conn.make_call("command", [self.user.name, "a", msg])
+            return
         if is_me:
             self.conn.make_call("command", [self.user.name, "me", msg])
             return
