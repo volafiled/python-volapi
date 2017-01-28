@@ -207,6 +207,30 @@ class Connection(requests.Session):
                     LOGGER.exception("failed to force close connection after ping error")
                 break
 
+    def on_frame(self, data):
+        if not hasattr(self, "room"):
+            LOGGER.debug("received out of bounds message [%r]", data)
+            return
+        LOGGER.debug("received message %r", data)
+        if isinstance(data, list) and len(data) > 1:
+            our_ack, data = data[0], data[1:]
+            last_ack = int(data[-1][-1])
+            need_ack = last_ack > self.proto.max_id + MAX_UNACKED
+            self.proto.max_id = last_ack
+            if need_ack:
+                LOGGER.debug("needing to ack (%d/%d)", last_ack, self.proto.max_id)
+                self.send_ack()
+            self.room.add_data(data)
+        elif "session" in data:
+            self.proto.session = data
+        elif data == [1]:
+            # ignore
+            pass
+        elif data == [0]:
+            raise IOError("Force disconnect?")
+        else:
+            LOGGER.warn("unhandled message frame type %r", data)
+
     def on_message(self, new_data):
         """Processes incoming messages according to engine-io rules"""
         # https://github.com/socketio/engine.io-protocol
@@ -232,28 +256,7 @@ class Connection(requests.Session):
                 return
 
             if what == 4:
-                if not hasattr(self, "room"):
-                    LOGGER.debug("received out of bounds message [%r]", data)
-                    return
-                LOGGER.debug("received message %r", data)
-                if isinstance(data, list) and len(data) > 1:
-                    our_ack, data = data[0], data[1:]
-                    last_ack = int(data[-1][-1])
-                    need_ack = last_ack > self.proto.max_id + MAX_UNACKED
-                    self.proto.max_id = last_ack
-                    if need_ack:
-                        LOGGER.debug("needing to ack (%d/%d)", last_ack, self.proto.max_id)
-                        self.send_ack()
-                    self.room.add_data(data)
-                elif "session" in data:
-                    self.proto.session = data
-                elif data == [1]:
-                    # ignore
-                    pass
-                elif data == [0]:
-                    raise IOError("Force disconnect?")
-                else:
-                    LOGGER.warn("unhandled message frame type %r", data)
+                self.on_frame(data)
                 return
 
             if what == 6:
@@ -388,7 +391,7 @@ class Room:
         self._user_count = 0
         self._files = OrderedDict()
         self._filereqs = {}
-        self._uploadCount = 0
+        self._upload_count = 0
 
         self.conn = Connection(self)
         if other:
@@ -936,8 +939,8 @@ class Room:
             with ARBITRATOR.condition:
                 ARBITRATOR.condition.wait()
         info = self.conn.make_api_call("getUploadKey", params={
-            "name": self.user.name, "room": self.name, "c": self._uploadCount})
-        self._uploadCount += 1
+            "name": self.user.name, "room": self.name, "c": self._upload_count})
+        self._upload_count += 1
         return info['key'], info['server'], info['file_id']
 
     def delete_files(self, ids):
