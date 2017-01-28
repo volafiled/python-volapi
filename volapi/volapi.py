@@ -14,7 +14,7 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 '''
-# pylint: disable=bad-continuation,too-many-lines,broad-except
+# pylint: disable=bad-continuation,too-many-lines,broad-except,missing-docstring,locally-disabled
 
 import asyncio
 import json
