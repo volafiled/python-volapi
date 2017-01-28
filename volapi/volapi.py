@@ -29,6 +29,7 @@ import requests
 from collections import OrderedDict
 from collections import defaultdict
 from contextlib import suppress
+from enum import Enum
 from threading import RLock
 from threading import Event
 from threading import get_ident as get_thread_ident
@@ -546,58 +547,7 @@ class Room:
 
     def _handle_chat(self, data, _):
         """Handle chat messages"""
-
-        files = []
-        rooms = {}
-        msg = ""
-        html_msg = ""
-
-        for part in data["message"]:
-            ptype = part['type']
-            if ptype == 'text':
-                msg += part['value']
-                html_msg += part['value']
-            elif ptype == 'break':
-                msg += "\n"
-                html_msg += "\n"
-            elif ptype == 'file':
-                if part['id'] in self._files:
-                    files += self._files[part['id']],
-                else:
-                    new_file = File(self.conn, part['id'], part['name'])
-                    files += new_file,
-                    self._filereqs[part['id']] = new_file
-                msg += "@" + part['id']
-                html_msg += "@" + part['id']
-            elif ptype == 'room':
-                rooms[part["id"]] = part['name']
-                msg += "#" + part['id']
-                html_msg += "#" + part['id']
-            elif ptype == 'url':
-                msg += part['text']
-                html_msg += part['text']
-            elif ptype == 'raw':
-                msg += html_to_text(part['value'])
-                html_msg += part['value']
-            else:
-                warnings.warn(
-                    "unknown message type '{}'".format(ptype),
-                    Warning)
-
-        options = data['options']
-        admin = 'admin' in options
-        staff = 'staff' in options
-        user = ('user' in options or admin or staff) and 'profile' in options
-
-        chat_message = ChatMessage(data["nick"], msg,
-                                   files=files,
-                                   rooms=rooms,
-                                   html_msg=html_msg,
-                                   logged_in=user,
-                                   donor="donator" in options,
-                                   admin=admin,
-                                   staff=staff)
-        self.conn.enqueue_data("chat", chat_message)
+        self.conn.enqueue_data("chat", ChatMessage.from_data(self, data))
 
     def _handle_changed_config(self, change, _):
         """Handle configuration changes"""
@@ -746,6 +696,9 @@ class Room:
 
         self._expire_files()
         return dict(self._files)
+
+    def register_filereq(self, file):
+        self._filereqs[file.id] = file
 
     def get_user_stats(self, name):
         """Return data about the given user. Returns None if user
@@ -948,6 +901,39 @@ class Room:
         self.conn.make_call("deleteFiles", args=[ids])
 
 
+class Roles(Enum):
+    """All recognized roles"""
+    WHITE = "white"
+    USER = "green"
+    DONOR = "donor"
+    STAFF = "trusted user"
+    ADMIN = "admin"
+    SYSTEM = "system"
+
+    @classmethod
+    def from_options(cls, options):
+        user = "profile" in options
+        if user:
+            if "admin" in options:
+                return cls.ADMIN
+            if "staff" in options:
+                return cls.STAFF
+            if "donator" in options:
+                return cls.DONOR
+            if "user" in options:
+                return cls.USER
+        else:
+            if "admin" in options:
+                return cls.SYSTEM
+        return cls.WHITE
+
+    def __str__(self):
+        return self.value
+
+    def __repr__(self):
+        return self.value
+
+
 class ChatMessage:
     """Basically a struct for a chat message. self.msg holds the
     text of the message, files is a list of Files that were
@@ -956,24 +942,120 @@ class ChatMessage:
     user of the message was logged in, a donor, or an admin."""
     # pylint: disable=too-few-public-methods
 
-    def __init__(self, nick, msg, **kw):
+    def __init__(self, nick, msg, role=Roles.WHITE, options=None, **kw):
+        if role not in Roles:
+            raise ValueError("Invalid role")
         self.nick = nick
         self.msg = msg
-        self.admin = self.logged_in = None
+        self.role = role
+        self.options = options or dict()
 
         # Optionals
         self.html_msg = kw.get("html_msg", "")
-        for key in ("files", "rooms"):
-            setattr(self, key, kw.get(key, ()))
-        for key in ("logged_in", "donor", "admin", "staff"):
-            setattr(self, key, kw.get(key, False))
+        self.files = kw.get("files", ())
+        self.rooms = kw.get("rooms", {})
+
+    @staticmethod
+    def from_data(room, data):
+        """Construct a ChatMessage instance from raw protocol data"""
+        files = []
+        rooms = {}
+        msg = ""
+        html_msg = ""
+
+        for part in data["message"]:
+            ptype = part['type']
+            if ptype == 'text':
+                val = part["value"]
+                msg += val
+                html_msg += val
+            elif ptype == 'break':
+                msg += "\n"
+                html_msg += "\n"
+            elif ptype == 'file':
+                fileid = part["id"]
+                file = room.filedict.get(fileid, None)
+                if not file:
+                    file = File(room.conn, fileid, part['name'])
+                    room.register_filereq(file)
+                files += file,
+                fileid = "@{}".format(fileid)
+                msg += fileid
+                html_msg += fileid
+            elif ptype == 'room':
+                roomid = part["id"]
+                rooms[roomid] = part['name']
+                roomid = "#{}".format(roomid)
+                msg += roomid
+                html_msg += roomid
+            elif ptype == 'url':
+                msg += part['text']
+                html_msg += part['text']
+            elif ptype == 'raw':
+                msg += html_to_text(part['value'])
+                html_msg += part['value']
+            else:
+                warnings.warn(
+                    "unknown message type '{}'".format(ptype),
+                    Warning)
+
+        options = data['options']
+
+        message = ChatMessage(
+            data["nick"],
+            msg,
+            role=Roles.from_options(options),
+            options=options,
+            files=files,
+            rooms=rooms,
+            html_msg=html_msg
+            )
+        return message
+
+    @property
+    def white(self):
+        return self.role is Roles.WHITE
+
+    @property
+    def user(self):
+        return self.role is Roles.USER
+
+    @property
+    def donor(self):
+        return self.role is Roles.DONOR
+
+    @property
+    def green(self):
+        return self.donor or self.user
+
+    @property
+    def staff(self):
+        return self.role is Roles.STAFF
+
+    @property
+    def admin(self):
+        return self.role is Roles.ADMIN
+
+    @property
+    def purple(self):
+        return self.admin or self.staff
+
+    @property
+    def system(self):
+        return self.role is Roles.SYSTEM
+
+    @property
+    def logged_in(self):
+        return self.green or self.purple
 
     def __repr__(self):
         prefix = ""
-        if self.admin:
+        if self.purple:
             prefix = "@"
-        elif self.logged_in:
+        elif self.green:
             prefix = "+"
+        elif self.system:
+            prefix = "%"
         return "<Msg({}{},{})>".format(prefix, self.nick, self.msg)
 
 
