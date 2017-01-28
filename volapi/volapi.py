@@ -14,17 +14,16 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 '''
-# pylint: disable=bad-continuation,too-many-lines,broad-except,missing-docstring,locally-disabled
+# pylint: disable=bad-continuation,too-many-lines,broad-except,missing-docstring,locally-disabled,redefined-variable-type
 
 import asyncio
 import json
+import logging
 import os
 import re
 import string
 import time
 import warnings
-
-import requests
 
 from collections import OrderedDict
 from collections import defaultdict
@@ -34,11 +33,12 @@ from threading import RLock
 from threading import Event
 from threading import get_ident as get_thread_ident
 
+import requests
+
 from .auxo import ARBITRATOR, Listeners, Protocol
 from .multipart import Data
 from .utils import delayed_close, html_to_text, random_id, to_json
 
-import logging
 LOGGER = logging.getLogger(__name__)
 
 __version__ = "4.0.0"
@@ -388,6 +388,7 @@ class Room:
 
 
         self.name = name
+        self.admin = False
         self._config = {}
         self._user_count = 0
         self._files = OrderedDict()
@@ -524,11 +525,12 @@ class Room:
         files = data['files']
         for file in files:
             try:
-                file = File(self.conn, file[0], file[1],
+                file = File(self, file[0], file[1],
                             type=file[2],
                             size=file[3],
                             expire_time=int(file[4]) / 1000,
-                            uploader=file[6].get("user", "literally lain"))
+                            uploader=file[6].get("user", "literally lain"),
+                            data=file[6])
                 self._files[file.id] = file
                 self.conn.enqueue_data("file", file)
             except Exception:
@@ -591,9 +593,13 @@ class Room:
 
     def _handle_owner(self, data, _):
         """Handle room owner changes"""
-
-        self.owner = data['owner']
+        self.owner = bool(data['owner'])
         self.conn.enqueue_data("owner", self.owner)
+
+    def _handle_admin(self, data, _):
+        """Handle admin notifications"""
+        self.admin = bool(data["admin"])
+        self.conn.enqueue_data("admin", self.admin)
 
     def _handle_fileinfo(self, data, _):
         """Handle file information responses"""
@@ -619,6 +625,7 @@ class Room:
         # for compat reasons
         self.conn.enqueue_data("chat_success", data)
         self.conn.enqueue_data("submitChat", data)
+
 
     def _handle_generic(self, data, target):
         """Handle generic notifications"""
@@ -862,6 +869,14 @@ class Room:
         self.conn.make_call("editInfo", [{"private": value}])
         self._config['private'] = value
 
+    def check_owner(self):
+        if not self.owner and not self.admin:
+            raise RuntimeError("You must own this room to do that")
+
+    def check_admin(self):
+        if not self.admin:
+            raise RuntimeError("You must be an admin to do that")
+
     @property
     def motd(self):
         """Returns the message of the day for this room"""
@@ -872,8 +887,7 @@ class Room:
     def motd(self, motd):
         """Sets the room's MOTD"""
 
-        if not self.owner:
-            raise RuntimeError("You must own this room to do that")
+        self.check_owner()
         if len(motd) > 1000:
             raise ValueError("Room's MOTD must be at most 1000 characters")
         self.conn.make_call("editInfo", [{"motd": motd}])
@@ -898,7 +912,35 @@ class Room:
 
     def delete_files(self, ids):
         """ Remove this file """
+        self.check_owner()
         self.conn.make_call("deleteFiles", args=[ids])
+
+    def timeout_message(self, message):
+        self.check_owner()
+        banid = message.data["id"]
+        self.conn.make_call("timeoutChat", args=[banid, message.nick])
+
+    def ban(self, address, hours, reason, options):
+        self.check_admin()
+        if hasattr(address, "ip_address"):
+            address = address.ip_address
+        ropts = {
+            "ban": False, "hellban": False, "mute": False, "purgeFiles": False,
+            "hours": hours, "reason": reason
+            }
+        ropts.update(options)
+        self.conn.make_call("banUser", args=[address, ropts])
+
+    def unban(self, address, options, reason=""):
+        self.check_admin()
+        if hasattr(address, "ip_address"):
+            address = address.ip_address
+        ropts = {
+            "ban": True, "hellban": True, "mute": True, "timeout": True,
+            "reason": reason
+            }
+        ropts.update(options)
+        self.conn.make_call("unbanUser", args=[address, ropts])
 
 
 class Roles(Enum):
@@ -954,6 +996,8 @@ class ChatMessage:
         self.html_msg = kw.get("html_msg", "")
         self.files = kw.get("files", ())
         self.rooms = kw.get("rooms", {})
+        self.data = kw.get("data", {})
+        self.self = self.data.get("self", False)
 
     @staticmethod
     def from_data(room, data):
@@ -976,7 +1020,7 @@ class ChatMessage:
                 fileid = part["id"]
                 file = room.filedict.get(fileid, None)
                 if not file:
-                    file = File(room.conn, fileid, part['name'])
+                    file = File(room, fileid, part['name'])
                     room.register_filereq(file)
                 files += file,
                 fileid = "@{}".format(fileid)
@@ -999,13 +1043,16 @@ class ChatMessage:
                     "unknown message type '{}'".format(ptype),
                     Warning)
 
-        options = data['options']
+        nick = data.get("nick", "n/a")
+        options = data.get("options", {})
+        data = data.get("data", {})
 
         message = ChatMessage(
-            data["nick"],
+            nick,
             msg,
             role=Roles.from_options(options),
             options=options,
+            data=data,
             files=files,
             rooms=rooms,
             html_msg=html_msg
@@ -1048,6 +1095,11 @@ class ChatMessage:
     def logged_in(self):
         return self.green or self.purple
 
+    @property
+    def ip_address(self):
+        """Returns the uploader ip if available"""
+        return self.data.get("ip")
+
     def __repr__(self):
         prefix = ""
         if self.purple:
@@ -1063,28 +1115,36 @@ class File:
     """Basically a struct for a file's info on volafile, with an additional
     method to retrieve the file's URL."""
 
-    def __init__(self, conn, file_id, name, **kw):
+    def __init__(self, room, file_id, name, **kw):
         # pylint: disable=invalid-name
-        self.conn = conn
+        self.room = room
+        self.conn = room.conn
         self.id = file_id
         self.name = name
 
         self._additional = dict(kw)
         self._event = Event()
+        self._added_infos = False
 
     def __getattr__(self, name):
         if name not in ("type", "size", "expire_time", "uploader", "info"):
             raise AttributeError("Not a valid key: {}".format(name))
-        result = self._additional.get(name, None)
-        if result is None:
+        try:
+            return self._additional[name]
+        except KeyError as ex:
+            if self._added_infos:
+                raise AttributeError(str(ex)) from ex
             self.conn.queues_enabled = False
             try:
                 self.conn.make_call("get_fileinfo", [self.id])
                 self._event.wait()
-                result = self._additional.get(name, None)
+                self._added_infos = True
+                try:
+                    return self._additional[name]
+                except KeyError as iex:
+                    raise AttributeError(str(iex)) from iex
             finally:
                 self.conn.queues_enabled = True
-        return result
 
     @property
     def url(self):
@@ -1161,9 +1221,18 @@ class File:
             raise RuntimeError("Only audio and video files can have titles")
         return self.info.get('title')
 
+    @property
+    def ip_address(self):
+        """Returns the uploader ip if available"""
+        try:
+            return self._additional.get("data", {}).get("ip", None) or self.info["uploader_ip"]
+        except KeyError as ex:
+            raise AttributeError("no ip available") from ex
+
     def __repr__(self):
         return ("<File({},{},{},{})>".
                 format(self.id, self.size, self.uploader, self.name))
+
 
     def add_info(self, info):
         """Adds info to the file."""
@@ -1182,7 +1251,13 @@ class File:
 
     def delete(self):
         """ Remove this file """
+        self.room.check_owner()
         self.conn.make_call("deleteFiles", args=[[self.id,]])
+
+    def timeout(self):
+        """ Timeout the uploader of this file """
+        self.room.check_owner()
+        self.conn.make_call("timeoutFile", args=[self.id, self.uploader])
 
 
 class User:
