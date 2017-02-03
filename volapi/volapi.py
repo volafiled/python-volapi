@@ -449,13 +449,12 @@ class Room:
                 r'(\w+):(?=([^"\\]*(\\.|"([^"\\]*\\.)*[^"\\]*"))*[^"]*$)',
                 r'"\1":',
                 text)
-            text = text.replace('true', '"true"').replace('false', '"false"')
             text = re.search(r'config=({.+});', text).group(1)
             config = json.loads(text)
 
             self._config["title"] = config["name"]
-            self._config["private"] = config.get("private", "true") == "true"
-            self._config["disabled"] = config.get("disabled", "false") == "true"
+            self._config["private"] = config.get("private", True)
+            self._config["disabled"] = config.get("disabled", False)
             self._config["motd"] = config.get("motd")
 
             self._config["max_title"] = config["max_room_name_length"]
