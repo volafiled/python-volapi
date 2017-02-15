@@ -48,19 +48,6 @@ BASE_URL = "https://volafile.io"
 BASE_ROOM_URL = BASE_URL + "/r/"
 BASE_REST_URL = BASE_URL + "/rest/"
 BASE_WS_URL = "wss://volafile.io/api/"
-EVENT_TYPES = (
-    "chat",
-    "file",
-    "user_count",
-    "config",
-    "user",
-    "owner",
-    "update_assets",
-    "subscribed",
-    "hooks",
-    "time",
-    "login",
-    "chat_success")
 
 
 class Connection(requests.Session):
@@ -290,8 +277,6 @@ class Connection(requests.Session):
 
         if not self.connected:
             raise ValueError("Room is not connected")
-        if event_type not in EVENT_TYPES:
-            raise ValueError("Invalid event type: {}".format(event_type))
         thread = get_thread_ident()
         with self.lock:
             listener = self.listeners[event_type][thread]
