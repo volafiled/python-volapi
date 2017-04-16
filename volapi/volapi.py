@@ -41,7 +41,7 @@ from .utils import delayed_close, html_to_text, random_id, to_json
 
 LOGGER = logging.getLogger(__name__)
 
-__version__ = "4.0.0"
+__version__ = "4.1.0"
 
 MAX_UNACKED = 10
 BASE_URL = "https://volafile.io"
@@ -385,7 +385,7 @@ class Room:
             self.conn.cookies.update(other.conn.cookies)
         self.conn.connect()
         try:
-            secret_key = self._connect()
+            self.room_id, secret_key = self._connect()
 
             if not subscribe and not user:
                 if other and other.user and other.user.name:
@@ -398,7 +398,7 @@ class Room:
             if subscribe and other and other.user and other.user.logged_in:
                 self.user.login_transplant(other.user)
             if subscribe:
-                self.conn.subscribe(self.name, self.user.name, secret_key)
+                self.conn.subscribe(self.room_id, self.user.name, secret_key)
 
             # check for first exception ever
             if self.conn.exception:
@@ -454,7 +454,7 @@ class Room:
                 self._config["ttl"] *= 3600
             self._config["session_lifetime"] = config["session_lifetime"]
 
-            return config.get("secretToken")
+            return config.get("room_id", config.get("custom_room_id", self.name)), config.get("secretToken")
 
         except Exception:
             raise IOError("Failed to get room config for {}".format(self.name))
