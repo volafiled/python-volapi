@@ -755,14 +755,14 @@ class Room:
             while True:
                 key, server, file_id = self._generate_upload_key()
                 info = dict(key=key, server=server, file_id=file_id,
-                            room=self.name, filename=filename,
+                            room=self.room_id, filename=filename,
                             len=files.len, resumecount=0)
                 if information_callback:
                     if information_callback(info) is False:
                         continue
                 break
 
-            params = {'room': self.name,
+            params = {'room': self.room_id,
                       'key': key,
                       'filename': filename}
 
