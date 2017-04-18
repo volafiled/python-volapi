@@ -427,16 +427,14 @@ class Room:
 
             text = room_resp.text
             text = text.replace('\n', '')
-
-            self.cs2 = re.search(r'checksum2\s*:\s*"(\w+?)"', text).group(1)
-
             text = re.sub(
                 r'(\w+):(?=([^"\\]*(\\.|"([^"\\]*\\.)*[^"\\]*"))*[^"]*$)',
                 r'"\1":',
                 text)
-            text = re.search(r'config=({.+});', text).group(1)
+            text = re.search(r'config\s*=\s*({.+});', text).group(1)
             config = json.loads(text)
 
+            self.cs2 = config["checksum2"]
             self._config["title"] = config["name"]
             self._config["private"] = config.get("private", True)
             self._config["disabled"] = config.get("disabled", False)
