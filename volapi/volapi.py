@@ -44,10 +44,10 @@ LOGGER = logging.getLogger(__name__)
 __version__ = "4.1.0"
 
 MAX_UNACKED = 10
-BASE_URL = "https://volafile.io"
+BASE_URL = "https://volafile.org"
 BASE_ROOM_URL = BASE_URL + "/r/"
 BASE_REST_URL = BASE_URL + "/rest/"
-BASE_WS_URL = "wss://volafile.io/api/"
+BASE_WS_URL = "wss://volafile.org/api/"
 
 
 class Connection(requests.Session):
