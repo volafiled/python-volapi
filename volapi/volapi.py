@@ -44,10 +44,11 @@ LOGGER = logging.getLogger(__name__)
 __version__ = "4.1.0"
 
 MAX_UNACKED = 10
-BASE_URL = "https://volafile.io"
+BASE_URL = "https://volafile.org"
+MAIN_JS = "https://static.volafile.org/static/js/main.js?c="
 BASE_ROOM_URL = BASE_URL + "/r/"
 BASE_REST_URL = BASE_URL + "/rest/"
-BASE_WS_URL = "wss://volafile.io/api/"
+BASE_WS_URL = "wss://volafile.org/api/"
 
 
 class Connection(requests.Session):
@@ -130,8 +131,8 @@ class Connection(requests.Session):
 
         headers = kw.get("headers") or {}
         headers.update({
-            "Origin": "https://volafile.io",
-            "Referer": "https://volafile.io/r/{}".format(self.room.name)
+            "Origin": BASE_URL,
+            "Referer": "{}/r/{}".format(BASE_URL, self.room.name)
             })
         kw["headers"] = headers
         return self.get(BASE_REST_URL + call, *args, **kw).json()
@@ -265,7 +266,7 @@ class Connection(requests.Session):
         try:
             if False:
                 text = self.get(
-                    "https://static.volafile.io/static/js/main.js?c=" + self.room.cs2).text
+                    MAIN_JS + self.room.cs2).text
                 cs1 = re.search(r'config\.checksum\s*=\s*"(\w+?)"', text).group(1)
             else:
                 cs1 = self.room.cs2
