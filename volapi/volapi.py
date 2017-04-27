@@ -14,7 +14,7 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 '''
-# pylint: disable=bad-continuation,too-many-lines,broad-except,missing-docstring,locally-disabled,redefined-variable-type
+# pylint: disable=bad-continuation,too-many-lines,broad-except,missing-docstring,locally-disabled
 
 import asyncio
 import json
@@ -216,6 +216,9 @@ class Connection(requests.Session):
             pass
         elif data == [0]:
             raise IOError("Force disconnect?")
+        elif isinstance(data, list):
+            our_ack = data[0]
+            # not really handled further
         else:
             LOGGER.warn("unhandled message frame type %r", data)
 
@@ -452,7 +455,10 @@ class Room:
                 self._config["ttl"] *= 3600
             self._config["session_lifetime"] = config["session_lifetime"]
 
-            return config.get("room_id", config.get("custom_room_id", self.name)), config.get("secretToken")
+            return (
+                config.get("room_id", config.get("custom_room_id", self.name)),
+                config.get("secretToken")
+                )
 
         except Exception:
             raise IOError("Failed to get room config for {}".format(self.name))
@@ -720,7 +726,7 @@ class Room:
         self.conn.make_call("chat", [self.user.name, msg])
 
     def upload_file(self, filename, upload_as=None, blocksize=None,
-                    callback=None, information_callback=None):
+                    callback=None, information_callback=None, allow_timeout=False):
         """
         Uploads a file with given filename to this room.
         You may specify upload_as to change the name it is uploaded as.
@@ -747,11 +753,12 @@ class Room:
                          blocksize=blocksize,
                          callback=callback)
 
-            headers = {'Origin': 'https://volafile.io'}
+            headers = {'Origin': BASE_URL}
             headers.update(files.headers)
 
             while True:
-                key, server, file_id = self._generate_upload_key()
+                key, server, file_id = self._generate_upload_key(
+                    allow_timeout=allow_timeout)
                 info = dict(key=key, server=server, file_id=file_id,
                             room=self.room_id, filename=filename,
                             len=files.len, resumecount=0)
@@ -883,17 +890,25 @@ class Room:
 
         self._files.clear()
 
-    def _generate_upload_key(self):
+    def _generate_upload_key(self, allow_timeout=False):
         """Generates a new upload key"""
 
         # Wait for server to set username if not set already.
         while not self.user.name:
             with ARBITRATOR.condition:
                 ARBITRATOR.condition.wait()
-        info = self.conn.make_api_call("getUploadKey", params={
-            "name": self.user.name, "room": self.name, "c": self._upload_count})
-        self._upload_count += 1
-        return info['key'], info['server'], info['file_id']
+        while True:
+            info = self.conn.make_api_call("getUploadKey", params={
+                "name": self.user.name, "room": self.name, "c": self._upload_count})
+            self._upload_count += 1
+            try:
+                return info['key'], info['server'], info['file_id']
+            except Exception:
+                to = int(info.get("error", {}).get("info", {}).get("timeout", 0))
+                if to <= 0 or not allow_timeout:
+                    raise IOError("Failed to retrieve key {}".format(info))
+                time.sleep(to / 10000)
+
 
     def delete_files(self, ids):
         """ Remove this file """
