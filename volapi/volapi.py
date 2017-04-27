@@ -900,7 +900,7 @@ class Room:
                 ARBITRATOR.condition.wait()
         while True:
             info = self.conn.make_api_call("getUploadKey", params={
-                "name": self.user.name, "room": self.name, "c": self._upload_count})
+                "name": self.user.name, "room": self.room_id, "c": self._upload_count})
             self._upload_count += 1
             try:
                 return info['key'], info['server'], info['file_id']
