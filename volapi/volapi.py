@@ -41,7 +41,7 @@ from .utils import delayed_close, html_to_text, random_id, to_json
 
 LOGGER = logging.getLogger(__name__)
 
-__version__ = "4.1.0"
+__version__ = "5.0.0"
 
 MAX_UNACKED = 10
 BASE_URL = "https://volafile.org"
