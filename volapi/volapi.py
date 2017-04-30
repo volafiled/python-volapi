@@ -465,7 +465,7 @@ class Room:
             raise IOError("Failed to get room config for {}".format(self.name))
 
     def __repr__(self):
-        return ("<Room({},{},connected={})>".
+        return ("<Room({}, {}, connected={})>".
                 format(self.name, self.user.name, self.connected))
 
     def __enter__(self):
@@ -948,6 +948,7 @@ class Roles(Enum):
     """All recognized roles"""
     WHITE = "white"
     USER = "green"
+    PRO = "pro"
     DONOR = "donor"
     STAFF = "trusted user"
     ADMIN = "admin"
@@ -961,6 +962,8 @@ class Roles(Enum):
                 return cls.ADMIN
             if "staff" in options:
                 return cls.STAFF
+            if "pro" in options:
+                return cls.PRO
             if "donator" in options:
                 return cls.DONOR
             if "user" in options:
@@ -1069,12 +1072,16 @@ class ChatMessage:
         return self.role is Roles.USER
 
     @property
+    def pro(self):
+        return self.role is Roles.PRO
+
+    @property
     def donor(self):
         return self.role is Roles.DONOR
 
     @property
     def green(self):
-        return self.donor or self.user
+        return self.pro or self.donor or self.user
 
     @property
     def staff(self):
@@ -1105,11 +1112,15 @@ class ChatMessage:
         prefix = ""
         if self.purple:
             prefix = "@"
+        elif self.pro:
+            prefix = "✡"
+        elif self.donor:
+            prefix = "💰"
         elif self.green:
             prefix = "+"
         elif self.system:
             prefix = "%"
-        return "<Msg({}{},{})>".format(prefix, self.nick, self.msg)
+        return "<Msg({}{}, {})>".format(prefix, self.nick, self.msg)
 
 
 class File:
@@ -1231,7 +1242,7 @@ class File:
             raise AttributeError("no ip available") from ex
 
     def __repr__(self):
-        return ("<File({},{},{},{})>".
+        return ("<File({}, {}, {}, {})>".
                 format(self.id, self.size, self.uploader, self.name))
 
 
