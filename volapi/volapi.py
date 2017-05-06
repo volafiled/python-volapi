@@ -35,7 +35,7 @@ from threading import get_ident as get_thread_ident
 
 import requests
 
-from .auxo import ARBITRATOR, Listeners, Protocol
+from .auxo import ARBITRATOR, Listeners, Protocol, Barrier
 from .multipart import Data
 from .utils import delayed_close, html_to_text, random_id, to_json
 
@@ -79,19 +79,29 @@ class Connection(requests.Session):
         self._ping_interval = 20  # default
         self.resubscribe = None
 
-        self.ws_url = ("{}?rn={}&EIO=3&transport=websocket&t={}".
-                  format(BASE_WS_URL, random_id(6),
-                         int(time.time() * 1000)))
         self.proto = Protocol(self)
         self.last_ack = self.proto.max_id
 
-    def connect(self):
+    def connect(self, username, checksum, token=""):
+        token = token or ""
+        ws_url = "{url}?room={room}&cs={cs}&nick={user}&token={token}&rn={rnd}&EIO=3&transport=websocket&t={t}".format(
+            cs=checksum,
+            rnd=random_id(6),
+            room=self.room.room_id,
+            t=int(time.time() * 1000),
+            token=token,
+            url=BASE_WS_URL,
+            user=username
+            )
+
+        self.conn_barrier = Barrier(2)
         ARBITRATOR.create_connection(
             self.proto,
-            self.ws_url,
+            ws_url,
             self.headers["User-Agent"],
             self.cookies
             )
+        self.conn_barrier.wait()
 
     @property
     def ping_interval(self):
@@ -174,8 +184,14 @@ class Connection(requests.Session):
         subscribe()
         self.resubscribe = subscribe
 
+    def ensure_barrier(self):
+        if self.conn_barrier:
+            self.conn_barrier.wait()
+            self.conn_barrier = None
+
     def on_open(self):
         """DingDongmaster the connection is open"""
+        self.ensure_barrier()
         while self.connected:
             try:
                 if self.lastping > self.lastpong:
@@ -195,6 +211,11 @@ class Connection(requests.Session):
                 except Exception:
                     LOGGER.exception("failed to force close connection after ping error")
                 break
+
+    def on_close(self):
+        """DingDongmaster the connection is gone"""
+        self.ensure_barrier()
+        yield None
 
     def on_frame(self, data):
         if not hasattr(self, "room"):
@@ -387,15 +408,15 @@ class Room:
         self.conn = Connection(self)
         if other:
             self.conn.cookies.update(other.conn.cookies)
-        self.conn.connect()
         try:
-            self.room_id, secret_key = self._connect()
+            self.room_id, secret_key = self._get_config()
 
             if not subscribe and not user:
                 if other and other.user and other.user.name:
                     user = other.user.name
                 else:
                     user = random_id(6)
+            self.conn.connect(username=user, checksum=self.cs2, token=secret_key)
             self.user = User(user, self.conn, self._config["max_nick"])
             self.owner = bool(secret_key)
 
@@ -412,7 +433,7 @@ class Room:
             self.close()
             raise
 
-    def _connect(self):
+    def _get_config(self):
         """ Really connect """
         room_resp = None
         if not self.name:

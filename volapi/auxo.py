@@ -140,7 +140,7 @@ class ListenerArbitrator:
             import sys
             sys.exit(1)
 
-    @call_sync
+    @call_async
     def create_connection(self, room, ws_url, agent, cookies):
         """Creates a new connection"""
 
@@ -164,7 +164,7 @@ class ListenerArbitrator:
                                            port=urlparts.port or 443,
                                            ssl=urlparts.scheme == "wss",
                                            )
-        asyncio.async(conn, loop=self.loop)
+        asyncio.ensure_future(conn, loop=self.loop)
 
     @call_async
     def send_message(self, proto, payload):
@@ -269,6 +269,7 @@ class Protocol(WebSocketClientProtocol):
             logger.exception("something went horribly wrong")
 
     def onClose(self, clean, code, reason):
+        yield from self.conn.on_close()
         # pylint: disable=unused-argument
         self.connected = False
 
