@@ -237,7 +237,8 @@ class Connection(requests.Session):
             # ignore
             pass
         elif data == [0]:
-            raise IOError("Force disconnect?")
+            #raise IOError("Force disconnect?")
+            pass
         elif isinstance(data, list):
             our_ack = data[0]
             # not really handled further
