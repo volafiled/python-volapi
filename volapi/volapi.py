@@ -77,7 +77,6 @@ class Connection(requests.Session):
         self._queues_enabled = True
 
         self._ping_interval = 20  # default
-        self.resubscribe = None
 
         self.proto = Protocol(self)
         self.last_ack = self.proto.max_id
@@ -161,28 +160,6 @@ class Connection(requests.Session):
         super().close()
         del self.room
         del self.proto
-
-    def subscribe(self, room_name, username, secret_key):
-        """Make subscribe API call"""
-
-        checksum, checksum2 = self._get_checksums()
-        subscribe_options = {"room": room_name,
-                             "checksum": checksum,
-                             "checksum2": checksum2,
-                             "nick": username
-                             }
-        if self.room.user.logged_in:
-            subscribe_options['session'] = self.room.user.session
-        if secret_key:
-            subscribe_options['secretToken'] = secret_key
-        def subscribe():
-            """Subscribe wrapper is wrapped"""
-            nonlocal subscribe_options, self
-            obj = [-1, [[0, ["subscribe", subscribe_options]],
-                        0]]
-            self.send_message("4" + to_json(obj))
-        subscribe()
-        self.resubscribe = subscribe
 
     def ensure_barrier(self):
         if self.conn_barrier:
@@ -417,14 +394,12 @@ class Room:
                     user = other.user.name
                 else:
                     user = random_id(6)
-            self.conn.connect(username=user, checksum=self.cs2, token=secret_key)
             self.user = User(user, self.conn, self._config["max_nick"])
+            self.conn.connect(username=user, checksum=self.cs2, token=secret_key)
             self.owner = bool(secret_key)
 
             if subscribe and other and other.user and other.user.logged_in:
                 self.user.login_transplant(other.user)
-            if subscribe:
-                self.conn.subscribe(self.room_id, self.user.name, secret_key)
 
             # check for first exception ever
             if self.conn.exception:
