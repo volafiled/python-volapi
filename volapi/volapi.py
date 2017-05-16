@@ -41,7 +41,7 @@ from .utils import delayed_close, html_to_text, random_id, to_json
 
 LOGGER = logging.getLogger(__name__)
 
-__version__ = "5.1.1"
+__version__ = "5.2.0"
 
 MAX_UNACKED = 10
 BASE_URL = "https://volafile.org"
@@ -440,7 +440,7 @@ class Room:
             self._config["private"] = config.get("private", True)
             self._config["disabled"] = config.get("disabled", False)
             self._config["motd"] = config.get("motd")
-            self._config["owner"] = config.get("owner")
+            self._config["owner"] = config.get("owner", "")
 
             self._config["max_title"] = config["max_room_name_length"]
             self._config["max_message"] = config["chat_max_message_length"]
