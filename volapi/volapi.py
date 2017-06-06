@@ -625,6 +625,7 @@ class Room:
     _handle_hooks = _handle_generic
     _handle_login = _handle_generic
     _handle_room_old = _handle_generic
+    _handle_pro = _handle_generic
 
     def _handle_unhandled(self, data, target):
         """Handle life, the universe and the rest"""
