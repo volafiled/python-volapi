@@ -81,7 +81,7 @@ class Connection(requests.Session):
         self.proto = Protocol(self)
         self.last_ack = self.proto.max_id
 
-    def connect(self, username, checksum, token=""):
+    def connect(self, username, checksum, token="", password=None, key=None):
         token = token or ""
         ws_url = "{url}?room={room}&cs={cs}&nick={user}&token={token}&rn={rnd}&EIO=3&transport=websocket&t={t}".format(
             cs=checksum,
@@ -92,6 +92,10 @@ class Connection(requests.Session):
             url=BASE_WS_URL,
             user=username
             )
+        if password:
+            ws_url += "&password={password}".format(password=password)
+        elif key:
+            ws_url += "&key={key}".format(key=key)
 
         self.conn_barrier = Barrier(2)
         ARBITRATOR.create_connection(
@@ -370,7 +374,7 @@ class Room:
     """
     # pylint: disable=unused-argument
 
-    def __init__(self, name=None, user=None, subscribe=True, other=None):
+    def __init__(self, name=None, user=None, key=None, password=None, subscribe=True, other=None):
         """name is the room name, if none then makes a new room
         user is your user name, if none then generates one for you"""
 
@@ -382,6 +386,8 @@ class Room:
         self._files = OrderedDict()
         self._filereqs = {}
         self._upload_count = 0
+        self.key = key or ""
+        self.password = password or ""
 
         self.conn = Connection(self)
         if other:
@@ -395,7 +401,12 @@ class Room:
                 else:
                     user = random_id(6)
             self.user = User(user, self.conn, self._config["max_nick"])
-            self.conn.connect(username=user, checksum=self.cs2, token=secret_key)
+            self.conn.connect(
+                username=user,
+                checksum=self.cs2,
+                token=secret_key,
+                password=self.password,
+                key=self.key)
             self.owner = bool(secret_key)
 
             if subscribe and other and other.user and other.user.logged_in:
@@ -411,7 +422,6 @@ class Room:
 
     def _get_config(self):
         """ Really connect """
-        room_resp = None
         if not self.name:
             room_resp = self.conn.get(BASE_URL + "/new")
             room_resp.raise_for_status()
@@ -422,38 +432,14 @@ class Room:
                 raise IOError("Failed to create room")
 
         try:
-            if not room_resp:
-                room_resp = self.conn.get(BASE_ROOM_URL + self.name)
-                room_resp.raise_for_status()
-
-            text = room_resp.text
-            text = text.replace('\n', '')
-            text = re.sub(
-                r'(\w+):(?=([^"\\]*(\\.|"([^"\\]*\\.)*[^"\\]*"))*[^"]*$)',
-                r'"\1":',
-                text)
-            text = re.search(r'config\s*=\s*({.+});', text).group(1)
-            config = json.loads(text)
-
+            params = {"id": self.name}
+            if self.key:
+                params["key"] = self.key
+            elif self.password:
+                params["password"] = self.password
+            config = self.conn.make_api_call("getRoomConfig", params=params)
             self.cs2 = config["checksum2"]
-            self._config["title"] = config["name"]
-            self._config["private"] = config.get("private", True)
-            self._config["disabled"] = config.get("disabled", False)
-            self._config["motd"] = config.get("motd")
-            self._config["owner"] = config.get("owner", "")
-
-            self._config["max_title"] = config["max_room_name_length"]
-            self._config["max_message"] = config["chat_max_message_length"]
-            self._config["max_nick"] = config["chat_max_alias_length"]
-            self._config["max_file"] = config["file_max_size"]
-            self._config["ttl"] = config.get("file_ttl")
-            if self._config["ttl"] is None:
-                self._config["ttl"] = config["file_time_to_live"]
-            else:
-                # convert hours to seconds
-                self._config["ttl"] *= 3600
-            self._config["session_lifetime"] = config["session_lifetime"]
-
+            self._process_config(config)
             return (
                 config.get("room_id", config.get("custom_room_id", self.name)),
                 config.get("secretToken")
@@ -461,6 +447,26 @@ class Room:
 
         except Exception:
             raise IOError("Failed to get room config for {}".format(self.name))
+
+    def _process_config(self, config):
+        self._config["title"] = config["name"]
+        self._config["private"] = config.get("private", True)
+        self._config["disabled"] = config.get("disabled", False)
+        self._config["motd"] = config.get("motd")
+        self._config["owner"] = config.get("owner", "")
+
+        self._config["max_title"] = config["max_room_name_length"]
+        self._config["max_message"] = config["chat_max_message_length"]
+        self._config["max_nick"] = config["chat_max_alias_length"]
+        self._config["max_file"] = config["file_max_size"]
+        self._config["ttl"] = config.get("file_ttl")
+        if self._config["ttl"] is None:
+            self._config["ttl"] = config["file_time_to_live"]
+        else:
+            # convert hours to seconds
+            self._config["ttl"] *= 3600
+        self._config["session_lifetime"] = config["session_lifetime"]
+
 
     def __repr__(self):
         return ("<Room({}, {}, connected={})>".
@@ -500,11 +506,33 @@ class Room:
             self.add_listener("user_count", onusercount)
         return self.conn.listen()
 
+    def _handle_401(self, data, _):
+        """Handle Lain being helpful"""
+        ex = IOError("non-cryptographic authenticator phrase (NSAable)", data)
+        self.conn.reraise(ex)
+
+    def _handle_429(self, data, _):
+        """Handle Lain being helpful"""
+        ex = IOError("Too fast", data)
+        self.conn.reraise(ex)
+
     def _handle_user_count(self, data, _):
         """Handle user count changes"""
 
         self._user_count = data
         self.conn.enqueue_data("user_count", self._user_count)
+
+    def _handle_key(self, data, _):
+        """Handle keys"""
+
+        self.key = data
+        self.conn.enqueue_data("key", self.key)
+
+    def _handle_config(self, data, _):
+        """Handle initial config push"""
+
+        self._process_config(data)
+        self.conn.enqueue_data("config", data)
 
     def _handle_files(self, data, _):
         """Handle new files being uploaded"""
@@ -898,8 +926,15 @@ class Room:
             with ARBITRATOR.condition:
                 ARBITRATOR.condition.wait()
         while True:
-            info = self.conn.make_api_call("getUploadKey", params={
-                "name": self.user.name, "room": self.room_id, "c": self._upload_count})
+            params = {
+                "name": self.user.name,
+                "room": self.room_id,
+                "c": self._upload_count}
+            if self.key:
+                params["key"] = self.key
+            elif self.password:
+                params["password"] = self.password
+            info = self.conn.make_api_call("getUploadKey", params=params)
             self._upload_count += 1
             try:
                 return info['key'], info['server'], info['file_id']
