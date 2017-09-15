@@ -446,7 +446,6 @@ class Room:
             self._config["max_message"] = config["chat_max_message_length"]
             self._config["max_nick"] = config["chat_max_alias_length"]
             self._config["max_file"] = config["file_max_size"]
-            self._config["creation_time"] = config["created_time"]
             self._config["ttl"] = config.get("file_ttl")
             if self._config["ttl"] is None:
                 self._config["ttl"] = config["file_time_to_live"]
