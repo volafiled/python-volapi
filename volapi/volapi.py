@@ -537,6 +537,7 @@ class Room:
     def _handle_files(self, data, _):
         """Handle new files being uploaded"""
 
+        initial = data.get("set", False)
         files = data['files']
         for file in files:
             try:
@@ -552,6 +553,8 @@ class Room:
                 import pprint
                 LOGGER.exception("bad")
                 pprint.pprint(file)
+        if initial:
+            self.conn.enqueue_data("received_files", True)
 
     def _handle_delete_file(self, data, _):
         """Handle files being removed"""
