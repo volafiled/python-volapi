@@ -41,7 +41,7 @@ from .utils import delayed_close, html_to_text, random_id, to_json
 
 LOGGER = logging.getLogger(__name__)
 
-__version__ = "5.3.0"
+__version__ = "5.3.1"
 
 MAX_UNACKED = 10
 BASE_URL = "https://volafile.org"
@@ -449,24 +449,27 @@ class Room:
             raise IOError("Failed to get room config for {}".format(self.name))
 
     def _process_config(self, config):
-        self._config["title"] = config["name"]
-        self._config["private"] = config.get("private", True)
-        self._config["disabled"] = config.get("disabled", False)
-        self._config["motd"] = config.get("motd")
-        self._config["owner"] = config.get("owner", "")
-
-        self._config["max_title"] = config["max_room_name_length"]
-        self._config["max_message"] = config["chat_max_message_length"]
-        self._config["max_nick"] = config["chat_max_alias_length"]
-        self._config["max_file"] = config["file_max_size"]
-        self._config["ttl"] = config.get("file_ttl")
-        if self._config["ttl"] is None:
-            self._config["ttl"] = config["file_time_to_live"]
-        else:
-            # convert hours to seconds
-            self._config["ttl"] *= 3600
-        self._config["session_lifetime"] = config["session_lifetime"]
-
+        defs = dict(private=True, disabled=False, owner="")
+        for k, v in defs.items():
+            if k not in self._config:
+                self._config[k] = v
+        mapped = dict(
+            private="private",
+            disabled="disabled",
+            owner="owner",
+            title="name",
+            motd="motd",
+            max_title="max_room_name_length",
+            max_message="chat_max_message_length",
+            max_nick="chat_max_alias_length",
+            max_file="file_max_size",
+            session_lifetime="session_lifetime",
+            ttl="file_time_to_live"
+        )
+        for k, v in mapped.items():
+            if v not in config:
+                continue
+            self._config[k] = config[v]
 
     def __repr__(self):
         return ("<Room({}, {}, connected={})>".
