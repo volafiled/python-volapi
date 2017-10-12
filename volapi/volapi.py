@@ -41,7 +41,7 @@ from .utils import delayed_close, html_to_text, random_id, to_json
 
 LOGGER = logging.getLogger(__name__)
 
-__version__ = "5.3.1"
+__version__ = "5.3.2"
 
 MAX_UNACKED = 10
 BASE_URL = "https://volafile.org"
@@ -432,7 +432,7 @@ class Room:
                 raise IOError("Failed to create room")
 
         try:
-            params = {"id": self.name}
+            params = {"room": self.name}
             if self.key:
                 params["key"] = self.key
             elif self.password:
