@@ -41,7 +41,7 @@ from .utils import delayed_close, html_to_text, random_id, to_json
 
 LOGGER = logging.getLogger(__name__)
 
-__version__ = "5.3.2"
+__version__ = "5.3.3"
 
 MAX_UNACKED = 10
 BASE_URL = "https://volafile.org"
@@ -838,6 +838,11 @@ class Room:
                         if "aborted" not in repr(iex): # ye, that's nasty but "compatible"
                             raise
                         continue # another day, another try
+                finally:
+                    #stall until server haz processed the file
+                    while not info["file_id"] in self._files.keys():
+                        with ARBITRATOR.condition:
+                                ARBITRATOR.condition.notify()
             return file_id
 
     def close(self):
