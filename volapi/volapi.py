@@ -41,7 +41,7 @@ from .utils import delayed_close, html_to_text, random_id, to_json
 
 LOGGER = logging.getLogger(__name__)
 
-__version__ = "5.3.2"
+__version__ = "5.4.0"
 
 MAX_UNACKED = 10
 BASE_URL = "https://volafile.org"
@@ -956,32 +956,54 @@ class Room:
         self.check_owner()
         self.conn.make_call("deleteFiles", args=[ids])
 
-    def timeout_message(self, message):
+    def timeout_message(self, message, duration=3600):
         self.check_owner()
         banid = message.data["id"]
-        self.conn.make_call("timeoutChat", args=[banid, message.nick])
+        self.conn.make_call("timeoutChat", args=[banid, duration])
 
-    def ban(self, address, hours, reason, options):
+    def ban(self, address, hours, reason, options, nick=None):
         self.check_admin()
+        who = []
         if hasattr(address, "ip_address"):
             address = address.ip_address
+            who.append({"ip": address})
+        if isinstance(address, list):
+            for a in address:
+                who.append({"ip": a})
+        if nick is not None:
+            if isinstance(nick, str):
+                who.append({"user": nick})
+            if isinstance(nick, list):
+                for n in nick:
+                    who.append({"user": n})
         ropts = {
             "ban": False, "hellban": False, "mute": False, "purgeFiles": False,
             "hours": hours, "reason": reason
             }
         ropts.update(options)
-        self.conn.make_call("banUser", args=[address, ropts])
+        self.conn.make_call("banUser", args=[who, ropts])
 
-    def unban(self, address, options, reason=""):
+    def unban(self, address, options, reason="", nick=None):
         self.check_admin()
+        who = []
         if hasattr(address, "ip_address"):
             address = address.ip_address
+            who.append({"ip": address})
+        if isinstance(address, list):
+            for a in address:
+                who.append({"ip": a})
+        if nick is not None:
+            if isinstance(nick, str):
+                who.append({"user": nick})
+            if isinstance(nick, list):
+                for n in nick:
+                    who.append({"user": n})
         ropts = {
             "ban": True, "hellban": True, "mute": True, "timeout": True,
             "reason": reason
             }
         ropts.update(options)
-        self.conn.make_call("unbanUser", args=[address, ropts])
+        self.conn.make_call("unbanUser", args=[who, ropts])
 
 
 class Roles(Enum):
@@ -1306,10 +1328,10 @@ class File:
         self.room.check_owner()
         self.conn.make_call("deleteFiles", args=[[self.id,]])
 
-    def timeout(self):
+    def timeout(self, duration=3600):
         """ Timeout the uploader of this file """
         self.room.check_owner()
-        self.conn.make_call("timeoutFile", args=[self.id, self.uploader])
+        self.conn.make_call("timeoutFile", args=[self.id, duration])
 
 
 class User:

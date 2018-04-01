@@ -6,7 +6,7 @@ Installation
 ------------
 ::
 
-    pip3 install volapi
+    pip3 install https://github.com/Szero/volapi/archive/master.zip
 
 Examples
 --------
@@ -17,7 +17,7 @@ Basic
 
     # Import volapi and a Room interface
     from volapi import Room
-    
+
     # beepi will close at the end of this scope
     with Room("BEEPi", "SameFag") as beepi:
         # optional login using a password
