@@ -41,7 +41,7 @@ from .utils import delayed_close, html_to_text, random_id, to_json
 
 LOGGER = logging.getLogger(__name__)
 
-__version__ = "5.4.0"
+__version__ = "5.5.0"
 
 MAX_UNACKED = 10
 BASE_URL = "https://volafile.org"
@@ -464,7 +464,8 @@ class Room:
             max_nick="chat_max_alias_length",
             max_file="file_max_size",
             session_lifetime="session_lifetime",
-            ttl="file_time_to_live"
+            ttl="file_time_to_live",
+            creation_time="created_time"
         )
         for k, v in mapped.items():
             if v not in config:
