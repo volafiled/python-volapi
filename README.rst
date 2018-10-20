@@ -6,7 +6,13 @@ Installation
 ------------
 ::
 
-    pip3 install https://github.com/Szero/volapi/archive/master.zip
+    pip3 install volapi
+
+If you have it installed already but want to update
+
+::
+
+   pip3 install -U volapi
 
 Examples
 --------
@@ -26,9 +32,6 @@ Basic
         id = beepi.upload_file("images/disgusted.jpg", upload_as="mfw.jpg")
         # Show off your file in the chat
         beepi.post_chat("mfw posting from volapi @{}".format(id))
-        # Print out chat messages since you got to the room
-        for msg in beepi.chat_log:
-            print(msg.nick + ": " + msg.msg)
 
 Listening
 ~~~~~~~~~
