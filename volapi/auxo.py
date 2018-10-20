@@ -3,8 +3,9 @@ The MIT License (MIT)
 Copyright © 2015 RealDolos
 See LICENSE
 """
-# pylint: disable=bad-continuation,broad-except,star-args
+# pylint: disable=bad-continuation,broad-except
 
+import logging
 import asyncio
 
 from collections import namedtuple
@@ -14,7 +15,6 @@ from threading import Barrier
 from threading import Condition
 from threading import RLock
 from threading import Thread, Event
-from time import time
 from urllib.parse import urlsplit
 
 from autobahn.asyncio.websocket import WebSocketClientFactory
@@ -22,12 +22,8 @@ from autobahn.asyncio.websocket import WebSocketClientProtocol
 from requests import Request
 from requests.cookies import get_cookie_header
 
-from .utils import to_json
 
-
-import logging
 logger = logging.getLogger(__name__)
-
 
 def call_async(func):
     """Decorates a function to be called async on the loop thread"""
@@ -39,7 +35,7 @@ def call_async(func):
             """Calls function on loop thread"""
             try:
                 func(self, *args, **kw)
-            except:
+            except Exception:
                 logger.exception("failed to call async [%r] with [%r] [%r]", func, args, kw)
 
         self.loop.call_soon_threadsafe(call)
@@ -77,6 +73,7 @@ def call_sync(func):
             raise ex or Exception("Unknown error")
         return result
     return wrapper
+
 
 class Awakener:
     """
@@ -136,7 +133,7 @@ class ListenerArbitrator:
         barrier.wait()
         try:
             self.loop.run_forever()
-        except Exception as ex:
+        except Exception:
             import sys
             sys.exit(1)
 
@@ -153,23 +150,23 @@ class ListenerArbitrator:
             headers = None
 
         factory = WebSocketClientFactory(
-            ws_url,
-            headers=headers,
-            loop=self.loop
-            )
+                ws_url,
+                headers=headers,
+                loop=self.loop
+                )
         factory.useragent = agent
         factory.protocol = lambda: room
         conn = self.loop.create_connection(factory,
-                                           host=urlparts.netloc,
-                                           port=urlparts.port or 443,
-                                           ssl=urlparts.scheme == "wss",
-                                           )
+                host=urlparts.netloc,
+                port=urlparts.port or 443,
+                ssl=urlparts.scheme == "wss",
+                )
         asyncio.ensure_future(conn, loop=self.loop)
 
     @call_async
     def send_message(self, proto, payload):
-        """Sends a message"""
         # pylint: disable=no-self-use
+        """Sends a message"""
 
         try:
             if not isinstance(payload, bytes):
@@ -212,7 +209,7 @@ class Listeners(namedtuple("Listeners", ("callbacks", "queue", "lock"))):
 
         for item in items:
             callbacks = [c for c in callbacks
-                         if c(item) is not False]
+                    if c(item) is not False]
 
         with self.lock:
             self.callbacks.clear()
@@ -249,28 +246,26 @@ class Protocol(WebSocketClientProtocol):
         self.send_count = 1
         self.session = None
 
-    def onConnect(self, response):
+    def onConnect(self, _response):
         self.connected = True
 
-    def onOpen(self):
-        yield from self.conn.on_open()
+    async def onOpen(self):
+        await self.conn.on_open()
 
-    def onMessage(self, new_data, binarybinary):
-        # pylint: disable=unused-argument
-        if not new_data:
-            logger.warn("empty frame!")
+    def onMessage(self, payload, _isBinary):
+        if not payload:
+            logger.warning("empty frame!")
             return
 
         try:
-            if isinstance(new_data, bytes):
-                new_data = new_data.decode("utf-8")
+            if isinstance(payload, bytes):
+                new_data = payload.decode("utf-8")
             self.conn.on_message(new_data)
-        except:
+        except Exception:
             logger.exception("something went horribly wrong")
 
-    def onClose(self, clean, code, reason):
-        yield from self.conn.on_close()
-        # pylint: disable=unused-argument
+    async def onClose(self, _wasClean, _code, _reason):
+        await self.conn.on_close()
         self.connected = False
 
     def reraise(self, ex):
@@ -281,5 +276,4 @@ class Protocol(WebSocketClientProtocol):
 
     def __repr__(self):
         return "<Protocol({},max_id={},send_count={})>".format(
-            self.session, self.max_id, self.send_count)
-
+                self.session, self.max_id, self.send_count)

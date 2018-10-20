@@ -52,9 +52,11 @@ def to_json(obj):
 
     return json.dumps(obj, separators=(',', ':'))
 
+
 @contextmanager
 def delayed_close(closable):
     """Delay close until this contextmanager dies"""
+
     close = getattr(closable, "close", None)
     if close:
         # we do not want the library to close file in case we need to
@@ -62,6 +64,7 @@ def delayed_close(closable):
         def replacement_close(*args, **kw):
             """ No op """
             pass
+
         setattr(closable, "close", replacement_close)
     try:
         yield closable

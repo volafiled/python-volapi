@@ -15,8 +15,8 @@ You should have received a copy of the GNU General Public License
 along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
-from setuptools import setup
 import re
+from setuptools import setup
 
 
 def find_version(filename):

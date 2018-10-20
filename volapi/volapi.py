@@ -41,7 +41,7 @@ from .utils import delayed_close, html_to_text, random_id, to_json
 
 LOGGER = logging.getLogger(__name__)
 
-__version__ = "5.5.0"
+__version__ = "5.6.0"
 
 MAX_UNACKED = 10
 BASE_URL = "https://volafile.org"
@@ -72,6 +72,7 @@ class Connection(requests.Session):
         self.headers.update({"User-Agent": agent})
 
         self.lock = RLock()
+        self.conn_barrier = Barrier(2)
         self.listeners = defaultdict(lambda: defaultdict(Listeners))
         self.must_process = False
         self._queues_enabled = True
@@ -90,20 +91,18 @@ class Connection(requests.Session):
             t=int(time.time() * 1000),
             token=token,
             url=BASE_WS_URL,
-            user=username
-            )
+            user=username)
         if password:
             ws_url += "&password={password}".format(password=password)
         elif key:
             ws_url += "&key={key}".format(key=key)
 
-        self.conn_barrier = Barrier(2)
         ARBITRATOR.create_connection(
-            self.proto,
-            ws_url,
-            self.headers["User-Agent"],
-            self.cookies
-            )
+                self.proto,
+                ws_url,
+                self.headers["User-Agent"],
+                self.cookies
+                )
         self.conn_barrier.wait()
 
     @property
@@ -170,7 +169,7 @@ class Connection(requests.Session):
             self.conn_barrier.wait()
             self.conn_barrier = None
 
-    def on_open(self):
+    async def on_open(self):
         """DingDongmaster the connection is open"""
         self.ensure_barrier()
         while self.connected:
@@ -181,7 +180,7 @@ class Connection(requests.Session):
                 self.send_message("2")
                 self.send_ack()
                 self.lastping = time.time()
-                yield from asyncio.sleep(self.ping_interval)
+                await asyncio.sleep(self.ping_interval)
             except Exception as ex:
                 LOGGER.exception("Failed to ping")
                 try:
@@ -193,10 +192,10 @@ class Connection(requests.Session):
                     LOGGER.exception("failed to force close connection after ping error")
                 break
 
-    def on_close(self):
+    async def on_close(self):
         """DingDongmaster the connection is gone"""
         self.ensure_barrier()
-        yield None
+        return None
 
     def on_frame(self, data):
         if not hasattr(self, "room"):
@@ -204,7 +203,7 @@ class Connection(requests.Session):
             return
         LOGGER.debug("received message %r", data)
         if isinstance(data, list) and len(data) > 1:
-            our_ack, data = data[0], data[1:]
+            _our_ack, data = data[0], data[1:]
             last_ack = int(data[-1][-1])
             need_ack = last_ack > self.proto.max_id + MAX_UNACKED
             self.proto.max_id = last_ack
@@ -221,10 +220,10 @@ class Connection(requests.Session):
             #raise IOError("Force disconnect?")
             pass
         elif isinstance(data, list):
-            our_ack = data[0]
+            _our_ack = data[0]
             # not really handled further
         else:
-            LOGGER.warn("unhandled message frame type %r", data)
+            LOGGER.warning("unhandled message frame type %r", data)
 
     def on_message(self, new_data):
         """Processes incoming messages according to engine-io rules"""
@@ -267,14 +266,7 @@ class Connection(requests.Session):
         """Gets the main checksums"""
 
         try:
-            if False:
-                text = self.get(
-                    MAIN_JS + self.room.cs2).text
-                cs1 = re.search(r'config\.checksum\s*=\s*"(\w+?)"', text).group(1)
-            else:
-                cs1 = self.room.cs2
-
-            return cs1, self.room.cs2
+            return self.room.cs2, self.room.cs2
         except Exception:
             raise IOError("Failed to get checksums")
 
@@ -319,8 +311,7 @@ class Connection(requests.Session):
         """Process queues if any have data queued"""
 
         with self.lock:
-            if (not forced and not self.must_process) or \
-                    not self._queues_enabled:
+            if (not forced and not self.must_process) or not self._queues_enabled:
                 return
             self.must_process = False
         ARBITRATOR.awaken()
@@ -378,10 +369,10 @@ class Room:
         """name is the room name, if none then makes a new room
         user is your user name, if none then generates one for you"""
 
-
         self.name = name
         self.admin = False
-        self._config = {}
+        self.user_info = dict()
+        self._config = dict()
         self._user_count = 0
         self._files = OrderedDict()
         self._filereqs = {}
@@ -402,11 +393,11 @@ class Room:
                     user = random_id(6)
             self.user = User(user, self.conn, self._config["max_nick"])
             self.conn.connect(
-                username=user,
-                checksum=self.cs2,
-                token=secret_key,
-                password=self.password,
-                key=self.key)
+                    username=user,
+                    checksum=self.cs2,
+                    token=secret_key,
+                    password=self.password,
+                    key=self.key)
             self.owner = bool(secret_key)
 
             if subscribe and other and other.user and other.user.logged_in:
@@ -441,9 +432,9 @@ class Room:
             self.cs2 = config["checksum2"]
             self._process_config(config)
             return (
-                config.get("room_id", config.get("custom_room_id", self.name)),
-                config.get("secretToken")
-                )
+                    config.get("room_id", config.get("custom_room_id", self.name)),
+                    config.get("secretToken")
+                    )
 
         except Exception:
             raise IOError("Failed to get room config for {}".format(self.name))
@@ -479,7 +470,7 @@ class Room:
     def __enter__(self):
         return self
 
-    def __exit__(self, extype, value, traceback):
+    def __exit__(self, _extype, _value, _traceback):
         self.close()
 
     def __del__(self):
@@ -520,11 +511,21 @@ class Room:
         ex = IOError("Too fast", data)
         self.conn.reraise(ex)
 
-    def _handle_user_count(self, data, _):
+    def _handle_userCount(self, data, _):
         """Handle user count changes"""
-
         self._user_count = data
         self.conn.enqueue_data("user_count", self._user_count)
+
+    def _handle_userInfo(self, data, _):
+        """Handle user information"""
+        for k, v in data.items():
+            if k == "owner":
+                self.owner = bool(v)
+                self.conn.enqueue_data("owner", self.owner)
+            if k == "admin":
+                self.admin = bool(v)
+                self.conn.enqueue_data("admin", self.admin)
+            self.user_info[k] = v
 
     def _handle_key(self, data, _):
         """Handle keys"""
@@ -546,11 +547,11 @@ class Room:
         for file in files:
             try:
                 file = File(self, file[0], file[1],
-                            type=file[2],
-                            size=file[3],
-                            expire_time=int(file[4]) / 1000,
-                            uploader=file[6].get("user", "literally lain"),
-                            data=file[6])
+                        type=file[2],
+                        size=file[3],
+                        expire_time=int(file[4]) / 1000,
+                        uploader=file[6].get("nick") or file[6].get("user"),
+                        data=file[6])
                 self._files[file.id] = file
                 self.conn.enqueue_data("file", file)
             except Exception:
@@ -597,12 +598,12 @@ class Room:
                     return
 
                 warnings.warn("unknown config key '{}': {} ({})".
-                              format(key, value, type(value)),
-                              Warning)
+                        format(key, value, type(value)),
+                        Warning)
             except Exception:
                 warnings.warn("Failed to handle config key'{}': {} ({})\nThis might be a bug!".
-                              format(key, value, type(value)),
-                              Warning)
+                        format(key, value, type(value)),
+                        Warning)
 
         finally:
             self.conn.enqueue_data("config", self)
@@ -612,16 +613,6 @@ class Room:
 
         self.user.name = data
         self.conn.enqueue_data("user", self.user)
-
-    def _handle_owner(self, data, _):
-        """Handle room owner changes"""
-        self.owner = bool(data['owner'])
-        self.conn.enqueue_data("owner", self.owner)
-
-    def _handle_admin(self, data, _):
-        """Handle admin notifications"""
-        self.admin = bool(data["admin"])
-        self.conn.enqueue_data("admin", self.admin)
 
     def _handle_fileinfo(self, data, _):
         """Handle file information responses"""
@@ -667,8 +658,8 @@ class Room:
         if not self:
             raise ValueError(self)
         warnings.warn("unknown data type '{}' with data '{}'".
-                      format(target, data),
-                      Warning)
+                format(target, data),
+                Warning)
 
     def add_data(self, rawdata):
         """Add data to given room's state"""
@@ -681,8 +672,8 @@ class Room:
                     continue
                 if item[0] != 0:
                     warnings.warn(
-                        "Unknown message type '{}'".format(item[0]),
-                        Warning)
+                            "Unknown message type '{}'".format(item[0]),
+                            Warning)
                     continue
                 item = item[1]
                 target = item[0]
@@ -691,7 +682,7 @@ class Room:
                 except IndexError:
                     data = dict()
                 method = getattr(self, "_handle_" + target,
-                                 self._handle_unhandled)
+                        self._handle_unhandled)
                 method(data, target)
             except IndexError:
                 LOGGER.warning("Wrongly constructed message received: %r", data)
@@ -707,7 +698,7 @@ class Room:
     def _expire_files(self):
         """Because files are always unclean"""
         self._files = OrderedDict(
-            item for item in self._files.items() if not item[1].expired)
+                item for item in self._files.items() if not item[1].expired)
 
     @property
     def files(self):
@@ -745,9 +736,8 @@ class Room:
 
         if len(msg) > self._config['max_message']:
             raise ValueError(
-                "Chat message must be at most {} characters".format(
-                    self._config['max_message']))
-
+                    "Chat message must be at most {} characters".format(
+                        self._config['max_message']))
         while not self.user.name:
             with ARBITRATOR.condition:
                 ARBITRATOR.condition.wait()
@@ -761,7 +751,7 @@ class Room:
         self.conn.make_call("chat", [self.user.name, msg])
 
     def upload_file(self, filename, upload_as=None, blocksize=None,
-                    callback=None, information_callback=None, allow_timeout=False):
+            callback=None, information_callback=None, allow_timeout=False):
         """
         Uploads a file with given filename to this room.
         You may specify upload_as to change the name it is uploaded as.
@@ -776,8 +766,8 @@ class Room:
                 file.seek(0, 2)
                 if file.tell() > self._config['max_file']:
                     raise ValueError(
-                        "File must be at most {} GB".format(
-                            self._config['max_file'] >> 30))
+                            "File must be at most {} GB".format(
+                                self._config['max_file'] >> 30))
             finally:
                 try:
                     file.seek(0)
@@ -785,33 +775,33 @@ class Room:
                     pass
 
             files = Data({'file': {"name": filename, "value": file}},
-                         blocksize=blocksize,
-                         callback=callback)
+                    blocksize=blocksize,
+                    callback=callback)
 
             headers = {'Origin': BASE_URL}
             headers.update(files.headers)
 
             while True:
                 key, server, file_id = self._generate_upload_key(
-                    allow_timeout=allow_timeout)
+                        allow_timeout=allow_timeout)
                 info = dict(key=key, server=server, file_id=file_id,
-                            room=self.room_id, filename=filename,
-                            len=files.len, resumecount=0)
+                        room=self.room_id, filename=filename,
+                        len=files.len, resumecount=0)
                 if information_callback:
                     if information_callback(info) is False:
                         continue
                 break
 
             params = {'room': self.room_id,
-                      'key': key,
-                      'filename': filename}
+                    'key': key,
+                    'filename': filename}
 
             while True:
                 try:
                     post = self.conn.post("https://{}/upload".format(server),
-                                          params=params,
-                                          data=files,
-                                          headers=headers)
+                            params=params,
+                            data=files,
+                            headers=headers)
                     post.raise_for_status()
                     break
 
@@ -820,16 +810,16 @@ class Room:
                         raise
                     try:
                         resume = self.conn.get("https://{}/rest/uploadStatus".format(server),
-                                               params={"key": key, "c": 1}).text
+                                params={"key": key, "c": 1}).text
                         resume = json.loads(resume)
                         resume = resume["receivedBytes"]
                         if resume <= 0:
                             raise ConnectionError("Cannot resume")
                         file.seek(resume)
                         files = Data({'file': {"name": filename, "value": file}},
-                                     blocksize=blocksize,
-                                     callback=callback,
-                                     logical_offset=resume)
+                                blocksize=blocksize,
+                                callback=callback,
+                                logical_offset=resume)
                         headers.update(files.headers)
                         params["startAt"] = resume
                         info["resumecount"] += 1
@@ -876,8 +866,8 @@ class Room:
             raise RuntimeError("You must own this room to do that")
         if len(new_name) > self._config['max_title'] or len(new_name) < 1:
             raise ValueError(
-                "Room name length must be between 1 and {} characters.".format(
-                    self._config['max_title']))
+                    "Room name length must be between 1 and {} characters.".format(
+                        self._config['max_title']))
         self.conn.make_call("editInfo", [{"name": new_name}])
         self._config['title'] = new_name
 
@@ -934,9 +924,9 @@ class Room:
                 ARBITRATOR.condition.wait()
         while True:
             params = {
-                "name": self.user.name,
-                "room": self.room_id,
-                "c": self._upload_count}
+                    "name": self.user.name,
+                    "room": self.room_id,
+                    "c": self._upload_count}
             if self.key:
                 params["key"] = self.key
             elif self.password:
@@ -965,6 +955,7 @@ class Room:
     def ban(self, address, hours, reason, options, nick=None):
         self.check_admin()
         who = []
+        options = options or dict()
         if hasattr(address, "ip_address"):
             address = address.ip_address
             who.append({"ip": address})
@@ -978,9 +969,9 @@ class Room:
                 for n in nick:
                     who.append({"user": n})
         ropts = {
-            "ban": False, "hellban": False, "mute": False, "purgeFiles": False,
-            "hours": hours, "reason": reason
-            }
+                "ban": False, "hellban": False, "mute": False, "purgeFiles": False,
+                "hours": hours, "reason": reason
+                }
         ropts.update(options)
         self.conn.make_call("banUser", args=[who, ropts])
 
@@ -1000,9 +991,9 @@ class Room:
                 for n in nick:
                     who.append({"user": n})
         ropts = {
-            "ban": True, "hellban": True, "mute": True, "timeout": True,
-            "reason": reason
-            }
+                "ban": True, "hellban": True, "mute": True, "timeout": True,
+                "reason": reason
+                }
         ropts.update(options)
         self.conn.make_call("unbanUser", args=[who, ropts])
 
@@ -1012,6 +1003,7 @@ class Roles(Enum):
     WHITE = "white"
     USER = "green"
     PRO = "pro"
+    JANITOR = "janitor"
     DONOR = "donor"
     STAFF = "trusted user"
     ADMIN = "admin"
@@ -1027,6 +1019,8 @@ class Roles(Enum):
                 return cls.STAFF
             if "pro" in options:
                 return cls.PRO
+            if "janitor" in options:
+                return cls.JANITOR
             if "donator" in options:
                 return cls.DONOR
             if "user" in options:
@@ -1089,7 +1083,7 @@ class ChatMessage:
                 if not file:
                     file = File(room, fileid, part['name'])
                     room.register_filereq(file)
-                files += file,
+                files += (file,)
                 fileid = "@{}".format(fileid)
                 msg += fileid
                 html_msg += fileid
@@ -1107,23 +1101,24 @@ class ChatMessage:
                 html_msg += part['value']
             else:
                 warnings.warn(
-                    "unknown message type '{}'".format(ptype),
-                    Warning)
+                        "unknown message type '{}'".format(ptype),
+                        Warning)
 
         nick = data.get("nick", "n/a")
         options = data.get("options", {})
+        options.update(room.user_info)
         data = data.get("data", {})
 
         message = ChatMessage(
-            nick,
-            msg,
-            role=Roles.from_options(options),
-            options=options,
-            data=data,
-            files=files,
-            rooms=rooms,
-            html_msg=html_msg
-            )
+                nick,
+                msg,
+                role=Roles.from_options(options),
+                options=options,
+                data=data,
+                files=files,
+                rooms=rooms,
+                html_msg=html_msg
+                )
         return message
 
     @property
@@ -1139,12 +1134,16 @@ class ChatMessage:
         return self.role is Roles.PRO
 
     @property
+    def janitor(self):
+        return self.role is Roles.JANITOR
+
+    @property
     def donor(self):
         return self.role is Roles.DONOR
 
     @property
     def green(self):
-        return self.pro or self.donor or self.user
+        return self.pro or self.donor or self.user or self.janitor
 
     @property
     def staff(self):
@@ -1164,7 +1163,7 @@ class ChatMessage:
 
     @property
     def logged_in(self):
-        return self.green or self.purple
+        return self.green or self.purple or self.janitor or self.pro
 
     @property
     def ip_address(self):
@@ -1174,15 +1173,17 @@ class ChatMessage:
     def __repr__(self):
         prefix = ""
         if self.purple:
-            prefix = "@"
-        elif self.pro:
-            prefix = "✡"
-        elif self.donor:
-            prefix = "💰"
-        elif self.green:
-            prefix = "+"
-        elif self.system:
-            prefix = "%"
+            prefix += "@"
+        if self.pro:
+            prefix += "✡"
+        if self.janitor:
+            prefix += "🧹"
+        if self.donor:
+            prefix += "💰"
+        if self.green:
+            prefix += "+"
+        if self.system:
+            prefix += "%"
         return "<Msg({}{}, {})>".format(prefix, self.nick, self.msg)
 
 
@@ -1300,14 +1301,14 @@ class File:
     def ip_address(self):
         """Returns the uploader ip if available"""
         try:
-            return self._additional.get("data", {}).get("ip", None) or self.info["uploader_ip"]
+            return (self._additional.get("data", {}).get("ip", None)
+                or self.info["uploader_ip"])
         except KeyError as ex:
             raise AttributeError("no ip available") from ex
 
     def __repr__(self):
         return ("<File({}, {}, {}, {})>".
                 format(self.id, self.size, self.uploader, self.name))
-
 
     def add_info(self, info):
         """Adds info to the file."""
@@ -1356,11 +1357,11 @@ class User:
             raise RuntimeError("User already logged in!")
 
         params = {"name": self.name,
-                  "password": password}
+                "password": password}
         json_resp = self.conn.make_api_call("login", params=params)
         if 'error' in json_resp:
             raise ValueError("Login unsuccessful: {}".
-                             format(json_resp["error"]))
+                    format(json_resp["error"]))
         self.session = json_resp["session"]
         self.conn.make_call("useSession", [self.session])
         self.conn.cookies.update({"session": self.session})
@@ -1410,7 +1411,7 @@ class User:
 
         if 'error' in json_resp:
             raise ValueError("User '{}' is already registered".
-                             format(self.name))
+                    format(self.name))
 
         self.conn.make_call("useSession", [json_resp["session"]])
         self.conn.cookies.update({"session": json_resp["session"]})
@@ -1423,9 +1424,9 @@ class User:
             raise ValueError("Password must be at least 8 characters.")
 
         params = {"name": self.name,
-                  "password": new_pass,
-                  "old_password": old_pass
-                  }
+                "password": new_pass,
+                "old_password": old_pass
+                }
         json_resp = self.conn.make_api_call("changePassword", params=params)
 
         if 'error' in json_resp:
@@ -1436,13 +1437,12 @@ class User:
 
         if len(username) > self._max_length or len(username) < 3:
             raise ValueError(
-                "Username must be between 3 and {} characters.".format(
-                    self._max_length))
-        if any(
-                c not in string.ascii_letters +
+                    "Username must be between 3 and {} characters.".format(
+                        self._max_length))
+        if any(c not in string.ascii_letters +
                 string.digits for c in username):
             raise ValueError(
-                "Usernames can only contain alphanumeric characters.")
+                    "Usernames can only contain alphanumeric characters.")
 
     def __repr__(self):
         return "<User({}, {})>".format(self.name, self.logged_in)
