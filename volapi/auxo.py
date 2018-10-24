@@ -25,20 +25,25 @@ from requests.cookies import get_cookie_header
 
 logger = logging.getLogger(__name__)
 
+
 def call_async(func):
     """Decorates a function to be called async on the loop thread"""
 
     @wraps(func)
     def wrapper(self, *args, **kw):
         """Wraps instance method to be called on loop thread"""
+
         def call():
             """Calls function on loop thread"""
             try:
                 func(self, *args, **kw)
             except Exception:
-                logger.exception("failed to call async [%r] with [%r] [%r]", func, args, kw)
+                logger.exception(
+                    "failed to call async [%r] with [%r] [%r]", func, args, kw
+                )
 
         self.loop.call_soon_threadsafe(call)
+
     return wrapper
 
 
@@ -72,6 +77,7 @@ def call_sync(func):
         if ex:
             raise ex or Exception("Unknown error")
         return result
+
     return wrapper
 
 
@@ -86,6 +92,7 @@ class Awakener:
     Having the release on another thread will not block the
     event loop thread, therefore problemb solved
     """
+
     # pylint: disable=too-few-public-methods
     def __init__(self, condition):
         self.condition = condition
@@ -135,6 +142,7 @@ class ListenerArbitrator:
             self.loop.run_forever()
         except Exception:
             import sys
+
             sys.exit(1)
 
     @call_async
@@ -149,18 +157,15 @@ class ListenerArbitrator:
         else:
             headers = None
 
-        factory = WebSocketClientFactory(
-                ws_url,
-                headers=headers,
-                loop=self.loop
-                )
+        factory = WebSocketClientFactory(ws_url, headers=headers, loop=self.loop)
         factory.useragent = agent
         factory.protocol = lambda: room
-        conn = self.loop.create_connection(factory,
-                host=urlparts.netloc,
-                port=urlparts.port or 443,
-                ssl=urlparts.scheme == "wss",
-                )
+        conn = self.loop.create_connection(
+            factory,
+            host=urlparts.netloc,
+            port=urlparts.port or 443,
+            ssl=urlparts.scheme == "wss",
+        )
         asyncio.ensure_future(conn, loop=self.loop)
 
     @call_async
@@ -208,8 +213,7 @@ class Listeners(namedtuple("Listeners", ("callbacks", "queue", "lock"))):
             callbacks = list(self.callbacks)
 
         for item in items:
-            callbacks = [c for c in callbacks
-                    if c(item) is not False]
+            callbacks = [c for c in callbacks if c(item) is not False]
 
         with self.lock:
             self.callbacks.clear()
@@ -256,7 +260,6 @@ class Protocol(WebSocketClientProtocol):
         if not payload:
             logger.warning("empty frame!")
             return
-
         try:
             if isinstance(payload, bytes):
                 new_data = payload.decode("utf-8")
@@ -276,4 +279,5 @@ class Protocol(WebSocketClientProtocol):
 
     def __repr__(self):
         return "<Protocol({},max_id={},send_count={})>".format(
-                self.session, self.max_id, self.send_count)
+            self.session, self.max_id, self.send_count
+        )

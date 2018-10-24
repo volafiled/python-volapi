@@ -2,6 +2,9 @@
 Volafile API (volapi)
 =====================
 
+.. image:: https://img.shields.io/badge/style-BLACKED-black.svg?longCache=true&style=flat-square
+    :target: https://github.com/ambv/black
+
 Installation
 ------------
 ::
@@ -19,6 +22,7 @@ Examples
 
 Basic
 ~~~~~
+
 .. code-block:: python
 
     # Import volapi and a Room interface

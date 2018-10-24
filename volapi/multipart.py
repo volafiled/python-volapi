@@ -39,8 +39,7 @@ def make_streams(name, value, boundary, encoding):
     mime = None
 
     # user passed in a special dict.
-    if (isinstance(value, collections.Mapping) and
-            "name" in value and "value" in value):
+    if isinstance(value, collections.Mapping) and "name" in value and "value" in value:
         filename = value["name"]
         try:
             mime = value["mime"]
@@ -60,13 +59,19 @@ def make_streams(name, value, boundary, encoding):
     stream = BytesIO()
     stream.write("--{}\r\n".format(boundary).encode(encoding))
     if not filename:
-        stream.write('Content-Disposition: form-data; name="{}"\r\n'.
-                     format(name).encode(encoding))
+        stream.write(
+            'Content-Disposition: form-data; name="{}"\r\n'.format(name).encode(
+                encoding
+            )
+        )
     else:
-        stream.write('Content-Disposition: form-data; name="{}"; filename="{}"\r\n'.
-                     format(name, filename).encode(encoding))
+        stream.write(
+            'Content-Disposition: form-data; name="{}"; filename="{}"\r\n'.format(
+                name, filename
+            ).encode(encoding)
+        )
         if mime:
-            stream.write('Content-Type: {}\r\n'.format(mime).encode(encoding))
+            stream.write("Content-Type: {}\r\n".format(mime).encode(encoding))
     stream.write(b"\r\n")
 
     if hasattr(value, "read"):
@@ -74,19 +79,17 @@ def make_streams(name, value, boundary, encoding):
         return stream, value, BytesIO("\r\n".encode(encoding))
 
     # not a file-like object, encode headers and value in one go
-    value = (value
-             if isinstance(value, str) or isinstance(value, bytes)
-             else json.dumps(value))
+    value = value if isinstance(value, (str, bytes)) else json.dumps(value)
     if isinstance(value, bytes):
         stream.write(value)
     else:
         stream.write(value.encode(encoding))
     stream.write(b"\r\n")
     stream.seek(0)
-    return stream,
+    return (stream,)
 
 
-class Data(object):
+class Data:
     """multipart/form-data generator
 
     The generator will own any file-like objects you pass in. You don't
@@ -107,7 +110,9 @@ class Data(object):
     into memory at once
     """
 
-    def __init__(self, values, blocksize=0, encoding="utf-8", callback=None, logical_offset=0):
+    def __init__(
+        self, values, blocksize=0, encoding="utf-8", callback=None, logical_offset=0
+    ):
         self.encoding = encoding or "utf-8"
         self.boundary = generate_boundary()
         self.streams = []
@@ -115,13 +120,13 @@ class Data(object):
         self.blocksize = blocksize
         self.logical_offset = logical_offset
         if not self.blocksize or self.blocksize <= 0:
-            self.blocksize = (1 << 17)
+            self.blocksize = 1 << 17
 
         for name, value in values.items():
-            self.streams.extend(
-                make_streams(name, value, self.boundary, encoding))
-        self.streams.append(BytesIO("--{}--\r\n".
-                                    format(self.boundary).encode(encoding)))
+            self.streams.extend(make_streams(name, value, self.boundary, encoding))
+        self.streams.append(
+            BytesIO("--{}--\r\n".format(self.boundary).encode(encoding))
+        )
 
     @property
     def len(self):
@@ -144,11 +149,11 @@ class Data(object):
     @property
     def headers(self):
         """All headers needed to make a request"""
-        return {"Content-Type": ("multipart/form-data; boundary={}".
-                                 format(self.boundary)),
-                "Content-Length": str(self.len),
-                "Content-Encoding": self.encoding
-               }
+        return {
+            "Content-Type": ("multipart/form-data; boundary={}".format(self.boundary)),
+            "Content-Length": str(self.len),
+            "Content-Encoding": self.encoding,
+        }
 
     def __iter__(self):
         with self:
@@ -172,8 +177,10 @@ class Data(object):
                             yield val
                             if self.callback:
                                 pos += len(val)
-                                self.callback(self.logical_offset + pos,
-                                              self.logical_offset + total)
+                                self.callback(
+                                    self.logical_offset + pos,
+                                    self.logical_offset + total,
+                                )
                             remainder = self.blocksize
                             buf = BytesIO()
                 try:
@@ -188,13 +195,12 @@ class Data(object):
             pos += len(last)
             yield last
             if self.callback:
-                self.callback(self.logical_offset + pos,
-                              self.logical_offset + total)
+                self.callback(self.logical_offset + pos, self.logical_offset + total)
 
     def __enter__(self):
         return self
 
-    def __exit__(self, extype, value, traceback):
+    def __exit__(self, _extype, _value, _traceback):
         self.close()
 
     def close(self):
@@ -216,23 +222,27 @@ if __name__ == "__main__":
 
     def main():
         """main()"""
-        multipart = {"abc": "def",
-                     "123": 345,
-                     "flt": 1.0,
-                     "json": {"hellow": ["world"]},
-                     "special": {"name": "huhu русский язык 中文",
-                                 "value": "value"},
-                     "file1": open(__file__, "rb"),
-                     "file2": {"name": "file.py",
-                               "value": open(__file__, "rb"),
-                               "mime": "application/x-python"}
-                    }
+        multipart = {
+            "abc": "def",
+            "123": 345,
+            "flt": 1.0,
+            "json": {"hellow": ["world"]},
+            "special": {"name": "huhu русский язык 中文", "value": "value"},
+            "file1": open(__file__, "rb"),
+            "file2": {
+                "name": "file.py",
+                "value": open(__file__, "rb"),
+                "mime": "application/x-python",
+            },
+        }
         multipart = Data(multipart, callback=my_callback, blocksize=100)
 
         if len(sys.argv) > 1:
-            print(requests.post(sys.argv[1],
-                                headers=multipart.headers,
-                                data=multipart).content)
+            print(
+                requests.post(
+                    sys.argv[1], headers=multipart.headers, data=multipart
+                ).content
+            )
             sys.exit(0)
 
         for key, val in multipart.headers.items():

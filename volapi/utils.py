@@ -16,16 +16,16 @@ class MLStripper(HTMLParser):
     """Used for stripping HTML from text."""
 
     def __init__(self):
-        super().__init__(convert_charrefs=True)
+        super().__init__()
         self.fed = []
 
-    def handle_data(self, d):
-        self.fed.append(d)
+    def handle_data(self, data):
+        self.fed.append(data)
 
     def get_data(self):
         """Gets the non-HTML data from text that was fed in"""
 
-        return ''.join(self.fed)
+        return "".join(self.fed)
 
 
 def html_to_text(html):
@@ -44,13 +44,13 @@ def random_id(length):
 
         return random.choice(string.ascii_letters + string.digits)
 
-    return ''.join(char() for _ in range(length))
+    return "".join(char() for _ in range(length))
 
 
 def to_json(obj):
     """Create a compact JSON string from an object"""
 
-    return json.dumps(obj, separators=(',', ':'))
+    return json.dumps(obj, separators=(",", ":"))
 
 
 @contextmanager
@@ -61,10 +61,12 @@ def delayed_close(closable):
     if close:
         # we do not want the library to close file in case we need to
         # resume, hence make close a no-op
+        # pylint: disable=unused-argument
         def replacement_close(*args, **kw):
             """ No op """
             pass
 
+        # pylint: enable=unused-argument
         setattr(closable, "close", replacement_close)
     try:
         yield closable
