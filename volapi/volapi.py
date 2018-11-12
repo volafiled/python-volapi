@@ -842,8 +842,11 @@ class Room:
                         continue
                 break
 
-            params = {"room": self.room_id, "key": key, "filename": filename}
-
+            if self.password:
+                params = {"room": self.room_id, "key": key, "password": self.password, "filename": filename}
+            else:
+                params = {"room": self.room_id, "key": key, "filename": filename}
+                
             while True:
                 try:
                     post = self.conn.post(
