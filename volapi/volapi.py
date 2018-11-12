@@ -842,10 +842,12 @@ class Room:
                         continue
                 break
 
-            if self.password:
-                params = {"room": self.room_id, "key": key, "password": self.password, "filename": filename}
-            else:
-                params = {"room": self.room_id, "key": key, "filename": filename}
+            params = {"room": self.room_id, "key": key, "filename": filename}
+
+            if self.key:
+                params["roomKey"] = self.key
+            elif self.password:
+                params["password"] = self.password
                 
             while True:
                 try:
@@ -990,7 +992,7 @@ class Room:
                 "c": self._upload_count,
             }
             if self.key:
-                params["key"] = self.key
+                params["roomKey"] = self.key
             elif self.password:
                 params["password"] = self.password
             info = self.conn.make_api_call("getUploadKey", params=params)
