@@ -845,6 +845,11 @@ class Room:
 
             params = {"room": self.room_id, "key": key, "filename": filename}
 
+            if self.key:
+                params["roomKey"] = self.key
+            elif self.password:
+                params["password"] = self.password
+                
             while True:
                 try:
                     post = self.conn.post(
@@ -1004,7 +1009,7 @@ class Room:
                 "c": self._upload_count,
             }
             if self.key:
-                params["key"] = self.key
+                params["roomKey"] = self.key
             elif self.password:
                 params["password"] = self.password
             info = self.conn.make_api_call("getUploadKey", params=params)
