@@ -849,7 +849,7 @@ class Room:
                 params["roomKey"] = self.key
             elif self.password:
                 params["password"] = self.password
-                
+
             while True:
                 try:
                     post = self.conn.post(
