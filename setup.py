@@ -1,4 +1,4 @@
-'''
+"""
 This file is part of Volapi.
 
 Volapi is free software: you can redistribute it and/or modify
@@ -13,7 +13,7 @@ GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
 along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
-'''
+"""
 
 import re
 from setuptools import setup
@@ -24,35 +24,38 @@ def find_version(filename):
     Search for assignment of __version__ string in given file and
     return what it is assigned to.
     """
-    with open(filename, 'r') as filep:
+    with open(filename, "r") as filep:
         version_file = filep.read()
-        version_match = re.search(r"^__version__ = ['\"]([^'\"]*)['\"]", version_file, re.M)
+        version_match = re.search(
+            r"^__version__ = ['\"]([^'\"]*)['\"]", version_file, re.M
+        )
         if version_match:
             return version_match.group(1)
         raise RuntimeError("Unable to find version string.")
 
+
 setup(
-    name='volapi',
-    version=find_version('volapi/volapi.py'),
-    description='API for Volafile.org',
-    long_description=open('README.rst', 'r').read(),
-    url='https://github.com/RealDolos/volapi',
-    license='GPLv3',
-    author='RealDolos',
-    author_email='dolos@cock.li',
-    packages=['volapi'],
+    name="volapi",
+    version=find_version("volapi/constants.py"),
+    description="API for Volafile.org",
+    long_description=open("README.rst", "r").read(),
+    url="https://github.com/Szero/volapi",
+    license="GPLv3",
+    author="RealDolos, Szero",
+    author_email="dolos@cock.li, singleton@tfwno.gf",
+    packages=["volapi"],
     include_package_data=True,
     classifiers=[
-        'Development Status :: 5 - Production/Stable',
-        'Intended Audience :: Developers',
-        'Natural Language :: English',
-        'License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)',
+        "Development Status :: 5 - Production/Stable",
+        "Intended Audience :: Developers",
+        "Natural Language :: English",
+        "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
         "Operating System :: OS Independent",
-        'Programming Language :: Python',
-        'Programming Language :: Python :: 3.5',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3 :: Only',
-        'Topic :: Software Development :: Libraries :: Python Modules',
+        "Programming Language :: Python",
+        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3 :: Only",
+        "Topic :: Software Development :: Libraries :: Python Modules",
     ],
-    install_requires=[l.strip() for l in open("requirements.txt").readlines()]
+    install_requires=[l.strip() for l in open("requirements.txt").readlines()],
 )

@@ -1,14 +1,17 @@
 """
 The MIT License (MIT)
 Copyright © 2015 RealDolos
+Copyright © 2018 Szero
 See LICENSE
 """
 # pylint: disable=bad-continuation,broad-except
 
 import logging
+import sys
 import asyncio
 
 from collections import namedtuple
+from collections import defaultdict
 from functools import wraps
 from threading import get_ident
 from threading import Barrier
@@ -16,6 +19,7 @@ from threading import Condition
 from threading import RLock
 from threading import Thread, Event
 from urllib.parse import urlsplit
+from copy import copy
 
 from autobahn.asyncio.websocket import WebSocketClientFactory
 from autobahn.asyncio.websocket import WebSocketClientProtocol
@@ -135,14 +139,15 @@ class ListenerArbitrator:
     def _loop(self, barrier):
         """Actual thread"""
 
-        self.loop = asyncio.new_event_loop()
+        if sys.platform != "win32":
+            self.loop = asyncio.new_event_loop()
+        else:
+            self.loop = asyncio.ProactorEventLoop()
         asyncio.set_event_loop(self.loop)
         barrier.wait()
         try:
             self.loop.run_forever()
         except Exception:
-            import sys
-
             sys.exit(1)
 
     @call_async
@@ -200,37 +205,57 @@ ARBITRATOR = ListenerArbitrator()
 
 
 class Listeners(namedtuple("Listeners", ("callbacks", "queue", "lock"))):
-    """Collection of Listeners"""
+    """Collection of Listeners
+    `callbacks` are function objects.
+    `queue` holds data that will be send to each function object
+    in `callbacks` variable.
+    Each issue of `process` method will run given callback
+    against items in `queue` when their types match. After that
+    `queue` is cleared and amount of `callbacks` is returned.
+    Callbacks that return False will be removed."""
 
     def __new__(cls):
-        return super().__new__(cls, list(), list(), RLock())
+        return super().__new__(cls, defaultdict(list), defaultdict(list), RLock())
 
     def process(self):
-        """Process queue for these listeners"""
+        """Process queue for these listeners. Only the items with type that
+        matches """
+
         with self.lock:
-            items = list(self.queue)
+            queue = copy(self.queue)
             self.queue.clear()
-            callbacks = list(self.callbacks)
-
-        for item in items:
-            callbacks = [c for c in callbacks if c(item) is not False]
+            callbacks = copy(self.callbacks)
 
         with self.lock:
-            self.callbacks.clear()
-            self.callbacks.extend(callbacks)
+            cb_rm_counter = 0
+            for ki, vi in queue.items():
+                if ki in self.callbacks:
+                    for item in vi:
+                        for cb in self.callbacks[ki]:
+                            if cb(item) is False:
+                                callbacks[ki].remove(cb)
+                                if not callbacks[ki]:
+                                    callbacks.pop(ki)
+                                cb_rm_counter += 1
+
+        with self.lock:
+            if cb_rm_counter:
+                self.callbacks.clear()
+                for k, v in callbacks.items():
+                    self.callbacks[k].append(v)
             return len(self.callbacks)
 
-    def add(self, callback):
+    def add(self, callback_type, callback):
         """Add a new listener"""
 
         with self.lock:
-            self.callbacks.append(callback)
+            self.callbacks[callback_type].append(callback)
 
-    def enqueue(self, item):
-        """Queue a new data item"""
+    def enqueue(self, item_type, item):
+        """Queue a new data item, make item iterable"""
 
         with self.lock:
-            self.queue.append(item)
+            self.queue[item_type].append(item)
 
     def __len__(self):
         """Return number of listeners in collection"""
