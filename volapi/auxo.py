@@ -235,14 +235,14 @@ class Listeners(namedtuple("Listeners", ("callbacks", "queue", "lock"))):
                             if cb(item) is False:
                                 callbacks[ki].remove(cb)
                                 if not callbacks[ki]:
-                                    callbacks.pop(ki)
+                                    del callbacks[ki]
                                 cb_rm_counter += 1
 
         with self.lock:
             if cb_rm_counter:
                 self.callbacks.clear()
                 for k, v in callbacks.items():
-                    self.callbacks[k].append(v)
+                    self.callbacks[k].append(v[0])
             return len(self.callbacks)
 
     def add(self, callback_type, callback):

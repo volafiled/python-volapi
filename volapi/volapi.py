@@ -403,7 +403,7 @@ class Room:
             self.conn.connect(
                 username=user, checksum=self.cs2, password=self.password, key=self.key
             )
-            if not owner:
+            if not owner or self.user.nick is None:
                 self.owner = False
             else:
                 # can't really be abused because you can only manage stuff as logged user
@@ -544,11 +544,13 @@ class Room:
         """Handle user information"""
         for k, v in data.items():
             if k == "nick":
+                if v == "None":
+                    v = "Volaphile"
                 setattr(self.user, k, v)
                 self.conn.enqueue_data(k, self.user.nick)
             elif k != "profile":
                 if not hasattr(self, k):
-                    warnings.warn(f"Skipping unset property f{k}", ResourceWarning)
+                    warnings.warn(f"Skipping unset property {k}", ResourceWarning)
                     continue
                 setattr(self, k, v)
                 self.conn.enqueue_data(k, getattr(self, k))
@@ -599,7 +601,7 @@ class Room:
                 LOGGER.exception("bad")
                 pprint.pprint(file)
         if initial:
-            self.conn.enqueue_data("initial_files", self._files.values())
+            self.conn.enqueue_data("initial_files", list(self._files.values()))
 
     def _handle_delete_file(self, data, _):
         """Handle files being removed"""
@@ -702,6 +704,8 @@ class Room:
                     continue
                 item = item[1]
                 target = item[0]
+                if target == 401:
+                    raise RuntimeError("Can't login to protected room without a password")
                 try:
                     data = item[1]
                 except IndexError:
