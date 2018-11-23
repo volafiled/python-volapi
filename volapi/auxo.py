@@ -235,7 +235,7 @@ class Listeners(namedtuple("Listeners", ("callbacks", "queue", "enlock", "lock")
             self.queue.clear()
             callbacks = copy(self.callbacks)
 
-        with self.lock, self.enlock:
+        with self.lock:
             rm_cb = False
             for ki, vi in queue.items():
                 if ki in self.callbacks:
