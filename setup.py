@@ -39,7 +39,7 @@ setup(
     version=find_version("volapi/constants.py"),
     description="API for Volafile.org",
     long_description=open("README.rst", "r").read(),
-    url="https://github.com/Szero/volapi",
+    url="https://github.com/volafiled/python-volapi",
     license="GPLv3",
     author="RealDolos, Szero",
     author_email="dolos@cock.li, singleton@tfwno.gf",

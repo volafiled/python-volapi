@@ -88,13 +88,13 @@ def call_sync(func):
 class Awakener:
     """
     Callable helper thread to awaken non-event loop threads.
-    The issue is that notify_all wil temporarily release the
+    The issue is that notify_all will temporarily release the
     lock to fire the listeners.
 
     If a listener would interact with volapi from there, this
     might mean a deadlock.
     Having the release on another thread will not block the
-    event loop thread, therefore problemb solved
+    event loop thread, therefore problem solved
     """
 
     # pylint: disable=too-few-public-methods
@@ -173,8 +173,7 @@ class ListenerArbitrator:
         )
         asyncio.ensure_future(conn, loop=self.loop)
 
-    @call_async
-    def send_message(self, proto, payload):
+    def __send_message(self, proto, payload):
         # pylint: disable=no-self-use
         """Sends a message"""
 
@@ -188,6 +187,14 @@ class ListenerArbitrator:
         except Exception as ex:
             logger.exception("Failed to send message")
             proto.reraise(ex)
+
+    @call_sync
+    def send_sync_message(self, proto, payload):
+        self.__send_message(proto, payload)
+
+    @call_async
+    def send_async_message(self, proto, payload):
+        self.__send_message(proto, payload)
 
     @call_sync
     def close(self, proto):
@@ -204,7 +211,7 @@ class ListenerArbitrator:
 ARBITRATOR = ListenerArbitrator()
 
 
-class Listeners(namedtuple("Listeners", ("callbacks", "queue", "lock"))):
+class Listeners(namedtuple("Listeners", ("callbacks", "queue", "enlock", "lock"))):
     """Collection of Listeners
     `callbacks` are function objects.
     `queue` holds data that will be send to each function object
@@ -215,19 +222,21 @@ class Listeners(namedtuple("Listeners", ("callbacks", "queue", "lock"))):
     Callbacks that return False will be removed."""
 
     def __new__(cls):
-        return super().__new__(cls, defaultdict(list), defaultdict(list), RLock())
+        return super().__new__(
+            cls, defaultdict(list), defaultdict(list), RLock(), RLock()
+        )
 
     def process(self):
         """Process queue for these listeners. Only the items with type that
         matches """
 
-        with self.lock:
+        with self.lock, self.enlock:
             queue = copy(self.queue)
             self.queue.clear()
             callbacks = copy(self.callbacks)
 
-        with self.lock:
-            cb_rm_counter = 0
+        with self.lock, self.enlock:
+            rm_cb = False
             for ki, vi in queue.items():
                 if ki in self.callbacks:
                     for item in vi:
@@ -236,13 +245,13 @@ class Listeners(namedtuple("Listeners", ("callbacks", "queue", "lock"))):
                                 callbacks[ki].remove(cb)
                                 if not callbacks[ki]:
                                     del callbacks[ki]
-                                cb_rm_counter += 1
+                                rm_cb = True
 
         with self.lock:
-            if cb_rm_counter:
+            if rm_cb:
                 self.callbacks.clear()
                 for k, v in callbacks.items():
-                    self.callbacks[k].append(v[0])
+                    self.callbacks[k].extend(v)
             return len(self.callbacks)
 
     def add(self, callback_type, callback):
@@ -254,7 +263,7 @@ class Listeners(namedtuple("Listeners", ("callbacks", "queue", "lock"))):
     def enqueue(self, item_type, item):
         """Queue a new data item, make item iterable"""
 
-        with self.lock:
+        with self.enlock:
             self.queue[item_type].append(item)
 
     def __len__(self):
@@ -303,6 +312,4 @@ class Protocol(WebSocketClientProtocol):
             logger.error("Cannot reraise")
 
     def __repr__(self):
-        return "<Protocol({},max_id={},send_count={})>".format(
-            self.session, self.max_id, self.send_count
-        )
+        return f"<Protocol({self.session},max_id={self.max_id},send_count={self.send_count})>"

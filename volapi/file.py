@@ -13,37 +13,44 @@ class File:
         self.fid = file_id
         self.name = name
 
-        self._additional = dict(kw)
-        self._thumb_srv = None
-        # self._added_infos = False
+        self.__additional = dict(kw)
 
     def __getattr__(self, name):
-        if name not in ("type", "size", "expire_time", "uploader", "checksum", "info"):
+        if name not in (
+            "type",
+            "size",
+            "expire_time",
+            "uploader",
+            "checksum",
+            "info",
+            "thumb",
+        ):
             raise AttributeError(f"Not a valid key: {name}")
         try:
-            return self._additional[name]
+            return self.__additional[name]
         except KeyError:
             self.conn.queues_enabled = False
-            data = self.conn.make_call_with_cb("getFileinfo", self.fid)
+            data = self.room.fileinfo(self.fid)
             self.name = data["name"]
-            add = self._additional
+            add = self.__additional
             add["type"] = "other"
             for file_type in ("book", "image", "video", "audio", "archive"):
                 if file_type in data:
                     add["type"] = file_type
                     break
+            if add["type"] in ("image", "video", "audio"):
+                add["thumb"] = data.get("thumb", dict())
             # checksum is md5
             add["checksum"] = data["checksum"]
             add["expire_time"] = data["expires"] / 1000
             add["size"] = data["size"]
             add["info"] = data.get(self.type, dict())
             add["uploader"] = data["user"]
-            self._thumb_srv = data.get("thumb", dict()).get("server")
             if self.room.admin:
                 add["info"].update({"room": data.get("room")})
                 add["info"].update({"uploader_ip": data.get("uploader_ip")})
             self.conn.queues_enabled = True
-            return self._additional[name]
+            return self.__additional[name]
 
     @property
     def url(self):
@@ -65,12 +72,16 @@ class File:
 
     @property
     def thumbnail(self):
-        """Returns the thumbnail url for this image, audio, or video file."""
+        """Returns the thumbnail url for this image, audio, or video file.
+        Returns `None` if the file has no thumbnail"""
 
         if self.type not in ("video", "image", "audio"):
             raise RuntimeError("Only video, audio and image files have thumbnails")
-        url = f"https://{self._thumb_srv}" if self._thumb_srv is not None else BASE_URL
-        return f"{url}/asset/{self.fid}/thumb"
+        thumb_srv = self.thumb.get("server")
+        url = f"https://{thumb_srv}" if thumb_srv else None
+        if url:
+            return f"{url}/asset/{self.fid}/thumb"
+        return None
 
     @property
     def resolution(self):

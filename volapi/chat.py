@@ -45,29 +45,30 @@ class Roles(Enum):
         return self.value
 
 
-class ChatMessage:
-    """Basically a struct for a chat message. self.msg holds the
+class ChatMessage(str):
+    """Basically a struct for a chat message. self holds the
     text of the message, files is a list of Files that were
     linked in the message, and rooms are a list of room
     linked in the message. There are also flags for whether the
     user of the message was logged in, a donor, or an admin."""
 
-    # pylint: disable=too-few-public-methods
+    # pylint: disable=no-member
 
-    def __init__(self, room, nick, msg, role=Roles.WHITE, options=None, **kw):
+    def __new__(cls, room, nick, msg, role=Roles.WHITE, options=None, **kw):
         if role not in Roles:
             raise ValueError("Invalid role")
-        self.room = room
-        self.nick = nick
-        self.msg = msg
-        self.role = role
-        self.options = options or dict()
+        obj = super().__new__(cls, msg)
+        obj.room = room
+        obj.nick = nick
+        obj.role = role
+        obj.options = options or dict()
 
         # Optionals
-        self.files = kw.get("files", list())
-        self.rooms = kw.get("rooms", dict())
-        self.data = kw.get("data", dict())
-        self.mymsg = self.data.get("self", False)
+        obj.files = kw.get("files", list())
+        obj.rooms = kw.get("rooms", dict())
+        obj.data = kw.get("data", dict())
+        obj.mymsg = obj.data.get("self", False)
+        return obj
 
     @staticmethod
     def from_data(room, data):
@@ -193,4 +194,4 @@ class ChatMessage:
             prefix += "+"
         if self.system:
             prefix += "%"
-        return f"<Msg({prefix}{self.nick}, {self.msg})>"
+        return f"<Msg({prefix}{self.nick}, {self})>"

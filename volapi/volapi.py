@@ -19,26 +19,25 @@ along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 import logging
 import warnings
 import asyncio
-import json
 import os
 import re
-import sys
 import time
 
 from collections import OrderedDict
 from collections import defaultdict
 from contextlib import suppress
 from threading import get_ident as get_thread_ident
+from threading import Barrier, RLock
+import queue
 
 
 import requests
-
-from .auxo import ARBITRATOR, Listeners, Protocol, Barrier, RLock, Event
+from .auxo import ARBITRATOR, Listeners, Protocol
 from .file import File
 from .user import User
 from .chat import ChatMessage
 from .multipart import Data
-from .utils import delayed_close, random_id, to_json, SmartEvent
+from .utils import delayed_close, random_id, to_json, from_json
 from .constants import __version__, MAX_UNACKED, BASE_URL, BASE_REST_URL, BASE_WS_URL
 
 LOGGER = logging.getLogger(__name__)
@@ -49,18 +48,6 @@ class Connection(requests.Session):
 
     def __init__(self, room):
 
-        if sys.platform != "win32":
-            try:
-                self.loop = asyncio.get_event_loop()
-            except Exception:
-                self.loop = asyncio.new_event_loop()
-        else:
-            try:
-                self.loop = asyncio.get_event_loop()
-            except Exception:
-                self.loop = asyncio.ProactorEventLoop()
-        asyncio.set_event_loop(self.loop)
-
         super().__init__()
 
         self.room = room
@@ -68,7 +55,7 @@ class Connection(requests.Session):
 
         self.lastping = self.lastpong = 0
 
-        agent = "Volafile-API/{}".format(__version__)
+        agent = f"Volafile-API/{__version__}"
 
         self.headers.update({"User-Agent": agent})
 
@@ -76,31 +63,24 @@ class Connection(requests.Session):
         self.conn_barrier = Barrier(2)
         self.listeners = defaultdict(Listeners)
         self.must_process = False
-        self._queues_enabled = True
-        self.callback = None
+        self.__queues_enabled = True
 
-        self._ping_interval = 20  # default
+        self.__ping_interval = 20  # default
 
         self.proto = Protocol(self)
         self.last_ack = self.proto.max_id
 
     def connect(self, username, checksum, password=None, key=None):
-        # token = token or ""
+        """Connect to websocket through asyncio http interface"""
+
         ws_url = (
-            "{url}?room={room}&cs={cs}&nick={user}"
-            "&rn={rnd}&t={ts}&transport=websocket&EIO=3".format(
-                url=BASE_WS_URL,
-                room=self.room.room_id,
-                cs=checksum,
-                user=username,
-                rnd=random_id(6),
-                ts=int(time.time() * 1000),
-            )
+            f"{BASE_WS_URL}?room={self.room.room_id}&cs={checksum}&nick={username}"
+            f"&rn={random_id(6)}&t={int(time.time() * 1000)}&transport=websocket&EIO=3"
         )
         if password:
-            ws_url += "&password={password}".format(password=password)
+            ws_url += f"&password={password}"
         elif key:
-            ws_url += "&key={key}".format(key=key)
+            ws_url += f"&key={key}"
 
         ARBITRATOR.create_connection(
             self.proto, ws_url, self.headers["User-Agent"], self.cookies
@@ -111,7 +91,11 @@ class Connection(requests.Session):
     def ping_interval(self):
         """Gets the ping interval"""
 
-        return self._ping_interval
+        return self.__ping_interval
+
+    @ping_interval.setter
+    def ping_interval(self, interval):
+        self.__ping_interval = interval
 
     @property
     def connected(self):
@@ -122,7 +106,7 @@ class Connection(requests.Session):
     def send_message(self, payload):
         """Send a message"""
 
-        ARBITRATOR.send_message(self.proto, payload)
+        ARBITRATOR.send_async_message(self.proto, payload)
 
     def send_ack(self):
         """Send an ack message"""
@@ -142,30 +126,36 @@ class Connection(requests.Session):
 
     def make_call_with_cb(self, fun, *args):
         """Makes an API call with a callback to wait for"""
-        self.callback = SmartEvent()
+
+        cid, event = self.room.register_callback()
         argscp = list(args)
-        argscp.append(self.callback.callback_id)
+        argscp.append(cid)
         self.make_call(fun, *argscp)
-        return self.callback.wait()
+        return event
 
     def make_api_call(self, call, *args, **kw):
         """Make a REST API call"""
 
         headers = kw.get("headers") or dict()
         headers.update(
-            {"Origin": BASE_URL, "Referer": "{}/r/{}".format(BASE_URL, self.room.name)}
+            {"Origin": BASE_URL, "Referer": f"{BASE_URL}/r/{self.room.name}"}
         )
         kw["headers"] = headers
         return self.get(BASE_REST_URL + call, *args, **kw).json()
 
     def reraise(self, ex):
         """Reraise an exception passed by the event thread"""
+
         self.exception = ex
         self.process_queues(forced=True)
 
     def close(self):
         """Closes connection pair"""
 
+        if self.connected:
+            obj = [self.proto.max_id, [[2], self.proto.send_count]]
+            ARBITRATOR.send_sync_message(self.proto, "4" + to_json(obj))
+            self.proto.send_count += 1
         self.listeners.clear()
         self.proto.connected = False
         ARBITRATOR.close(self.proto)
@@ -180,6 +170,7 @@ class Connection(requests.Session):
 
     async def on_open(self):
         """DingDongmaster the connection is open"""
+
         self.ensure_barrier()
         while self.connected:
             try:
@@ -205,6 +196,7 @@ class Connection(requests.Session):
 
     async def on_close(self):
         """DingDongmaster the connection is gone"""
+
         self.ensure_barrier()
         return None
 
@@ -245,9 +237,9 @@ class Connection(requests.Session):
         try:
             what = int(new_data[0])
             data = new_data[1:]
-            data = data and json.loads(data)
+            data = data and from_json(data)
             if what == 0:
-                self._ping_interval = float(data["pingInterval"]) / 1000
+                self.ping_interval = float(data["pingInterval"]) / 1000
                 LOGGER.debug("adjusted ping interval")
                 return
 
@@ -279,13 +271,19 @@ class Connection(requests.Session):
         You'll need to actually listen for changes using the listen method"""
 
         if not self.connected:
-            raise ValueError("Room is not connected")
+            # wait for errors set by reraise method
+            time.sleep(1)
+            if self.exception:
+                # pylint: disable=raising-bad-type
+                raise self.exception
+            else:
+                raise ConnectionError(f"{self.room} is not connected")
+
         thread = get_thread_ident()
         with self.lock:
             listener = self.listeners[thread]
         listener.add(event_type, callback)
-        # use "initial_files" event to listen for initial
-        # file room population
+        # use "initial_files" event to listen for whole filelist on room join
         self.process_queues()
 
     def enqueue_data(self, event_type, data):
@@ -301,20 +299,20 @@ class Connection(requests.Session):
     def queues_enabled(self):
         """Whether queue processing is enabled"""
 
-        return self._queues_enabled
+        return self.__queues_enabled
 
     @queues_enabled.setter
     def queues_enabled(self, value):
         """Sets whether queue processing is enabled"""
 
         with self.lock:
-            self._queues_enabled = value
+            self.__queues_enabled = value
 
     def process_queues(self, forced=False):
         """Process queues if any have data queued"""
 
         with self.lock:
-            if (not forced and not self.must_process) or not self._queues_enabled:
+            if (not forced and not self.must_process) or not self.__queues_enabled:
                 return
             self.must_process = False
         ARBITRATOR.awaken()
@@ -375,6 +373,8 @@ class Room:
         user is your user name, if none then generates one for you"""
 
         self.name = name
+        self.key = key or ""
+        self.password = password or ""
         self.admin = False
         self.staff = False
         self.janitor = False
@@ -384,9 +384,8 @@ class Room:
         self._files = OrderedDict()
         self._upload_count = 0
         self._room_score = 0.0
-        self.key = key or ""
-        self.password = password or ""
-        self.ensure_cfg = Event()
+        self.__callbacks = dict()
+        self.__cid = 0
 
         self.conn = Connection(self)
         if other:
@@ -420,6 +419,13 @@ class Room:
             self.close()
             raise
 
+    def register_callback(self):
+        cid = str(self.__cid)
+        self.__cid += 1
+        event = queue.Queue()
+        self.__callbacks[cid] = event
+        return cid, event
+
     def _get_config(self):
         """ Really connect """
         if not self.name:
@@ -439,13 +445,12 @@ class Room:
             config = self.conn.make_api_call("getRoomConfig", params=params)
             self.cs2 = config["checksum2"]
             self._process_config(config)
-            self.ensure_cfg.set()
             return (
                 config.get("room_id", config.get("custom_room_id", self.name)),
                 config.get("owner"),
             )
         except Exception:
-            raise IOError("Failed to get room config for {}".format(self.name))
+            raise IOError(f"Failed to get room config for {self.name}")
 
     def _process_config(self, config):
         defs = dict(private=True, disabled=False, owner="")
@@ -472,9 +477,7 @@ class Room:
             self._config[k] = config[v]
 
     def __repr__(self):
-        return "<Room({}, {}, connected={})>".format(
-            self.name, self.user.nick, self.connected
-        )
+        return f"<Room({self.name}, {self.user.nick}, connected={self.connected})>"
 
     def __enter__(self):
         return self
@@ -497,43 +500,46 @@ class Room:
 
         return self.conn.add_listener(event_type, callback)
 
-    def listen(self, onmessage=None, onfile=None, onusercount=None):
+    def listen(self, once=False):
         """Listen for changes in all registered listeners.
-        Please note that the on* arguments are present solely for legacy
-        purposes. New code should use add_listener."""
+        Use add_listener before calling this funcion to listen for desired
+        events or set `once` to True to listen for initial room information """
 
-        if onmessage:
-            self.add_listener("chat", onmessage)
-        if onfile:
-            self.add_listener("file", onfile)
-        if onusercount:
-            self.add_listener("user_count", onusercount)
+        if once:
+            # we listen for time event and return false so our
+            # run_queues function will be also falsy and break the loop
+            self.add_listener("time", lambda _: False)
         return self.conn.listen()
 
     def _handle_401(self, data, _):
         """Handle Lain being helpful"""
-        ex = IOError("non-cryptographic authenticator phrase (NSAable)", data)
+
+        ex = ConnectionError("Can't login to a protected room without a proper password")
         self.conn.reraise(ex)
 
     def _handle_429(self, data, _):
         """Handle Lain being helpful"""
+
         ex = IOError("Too fast", data)
         self.conn.reraise(ex)
 
     def _handle_callback(self, data, _):
         """Handle lain's callback. Only used with getFileinfo so far"""
+
         cb_id = data.get("id")
         args = data.get("args")
-        if len(args) == 0:
-            # empty list means command was unsuccessful
-            self.conn.callback.set(cb_id, None)
+        event = self.__callbacks.pop(cb_id, None)
+        if not event:
+            return
+        if not args:
+            event.put(args)
             return
         err, info = args
         if err is None:
-            self.conn.callback.set(cb_id, info)
+            event.put(info)
         else:
             LOGGER.warning("Callback returned error of %s", str(err))
-            self.conn.callback.set(cb_id, err)
+            event.put(err)
 
     def _handle_userCount(self, data, _):
         """Handle user count changes"""
@@ -641,14 +647,12 @@ class Room:
                     return
 
                 warnings.warn(
-                    "unknown config key '{}': {} ({})".format(key, value, type(value)),
-                    Warning,
+                    f"unknown config key '{key}': {value} ({type(value)})", Warning
                 )
             except Exception:
                 warnings.warn(
-                    "Failed to handle config key'{}': {} ({})\nThis might be a bug!".format(
-                        key, value, type(value)
-                    ),
+                    f"Failed to handle config key'{key}': {value} ({type(value)})"
+                    f"\nThis might be a bug!",
                     Warning,
                 )
         finally:
@@ -670,7 +674,6 @@ class Room:
 
         self.conn.enqueue_data(target, data)
 
-
     # _handle_update_assets = _handle_generic
     _handle_submitChat = _handle_generic
     _handle_submitCommand = _handle_generic
@@ -686,9 +689,7 @@ class Room:
 
         if not self:
             raise ValueError(self)
-        warnings.warn(
-            "unknown data type '{}' with data '{}'".format(target, data), Warning
-        )
+        warnings.warn(f"unknown data type '{target}' with data '{data}'", Warning)
 
     def add_data(self, rawdata):
         """Add data to given room's state"""
@@ -700,17 +701,16 @@ class Room:
                     # Flush messages but we got nothing to flush
                     continue
                 if item[0] != 0:
-                    warnings.warn("Unknown message type '{}'".format(item[0]), Warning)
+                    warnings.warn(f"Unknown message type '{item[0]}'", Warning)
                     continue
                 item = item[1]
                 target = item[0]
-                if target == 401:
-                    raise RuntimeError("Can't login to protected room without a password")
                 try:
                     data = item[1]
                 except IndexError:
                     data = dict()
-                method = getattr(self, "_handle_" + target, self._handle_unhandled)
+                # convert target to string because error codes are ints
+                method = getattr(self, "_handle_" + str(target), self._handle_unhandled)
                 method(data, target)
             except IndexError:
                 LOGGER.warning("Wrongly constructed message received: %r", data)
@@ -770,9 +770,8 @@ class Room:
 
         if len(msg) > self._config["max_message"]:
             raise ValueError(
-                "Chat message must be at most {} characters".format(
-                    self._config["max_message"]
-                )
+                f"Chat message must be at most "
+                f"{self._config['max_message']} characters"
             )
         while not self.user.nick:
             with ARBITRATOR.condition:
@@ -810,9 +809,7 @@ class Room:
                 file.seek(0, 2)
                 if file.tell() > self._config["max_file"]:
                     raise ValueError(
-                        "File must be at most {} GB".format(
-                            self._config["max_file"] >> 30
-                        )
+                        f"File must be at most {self._config['max_file'] >> 30} GB"
                     )
             finally:
                 try:
@@ -857,7 +854,7 @@ class Room:
             while True:
                 try:
                     post = self.conn.post(
-                        "https://{}/upload".format(server),
+                        f"https://{server}/upload",
                         params=params,
                         data=files,
                         headers=headers,
@@ -870,10 +867,10 @@ class Room:
                         raise
                     try:
                         resume = self.conn.get(
-                            "https://{}/rest/uploadStatus".format(server),
+                            f"https://{server}/rest/uploadStatus",
                             params={"key": key, "c": 1},
                         ).text
-                        resume = json.loads(resume)
+                        resume = from_json(resume)
                         resume = resume["receivedBytes"]
                         if resume <= 0:
                             raise ConnectionError("Cannot resume")
@@ -899,7 +896,6 @@ class Room:
     def close(self):
         """Close connection to this room"""
 
-        self.clear()
         if hasattr(self, "conn"):
             self.conn.close()
             del self.conn
@@ -937,9 +933,8 @@ class Room:
             raise RuntimeError("You must own this room to do that")
         if len(new_name) > self._config["max_title"] or len(new_name) < 1:
             raise ValueError(
-                "Room name length must be between 1 and {} characters.".format(
-                    self._config["max_title"]
-                )
+                f"Room name length must be between 1 "
+                f"and {self._config['max_title']} characters."
             )
         self.conn.make_call("editInfo", {"name": new_name})
         self._config["title"] = new_name
@@ -990,14 +985,21 @@ class Room:
 
     def fileinfo(self, fid):
         """Ask lain about what he knows about given file"""
+
         if not isinstance(fid, str):
             raise TypeError("Your file ID must be a string")
-        data = self.conn.make_call_with_cb("getFileinfo", fid)
-        if data is None:
-            warnings.warn(
-                f"Your query for file with ID: '{fid}' failed.", RuntimeWarning
-            )
-        return data
+        try:
+            info = self.conn.make_call_with_cb("getFileinfo", fid).get(timeout=5)
+            if not info:
+                warnings.warn(
+                    f"Your query for file with ID: '{fid}' failed.", RuntimeWarning
+                )
+        except queue.Empty as ex:
+            raise ValueError(
+                "lain didn't produce a callback!\n"
+                "Are you sure your query wasn't malformed?"
+            ) from ex
+        return info
 
     def _generate_upload_key(self, allow_timeout=False):
         """Generates a new upload key"""
@@ -1023,7 +1025,7 @@ class Room:
             except Exception:
                 to = int(info.get("error", {}).get("info", {}).get("timeout", 0))
                 if to <= 0 or not allow_timeout:
-                    raise IOError("Failed to retrieve key {}".format(info))
+                    raise IOError(f"Failed to retrieve key {info}")
                 time.sleep(to / 10000)
 
     def delete_files(self, ids):

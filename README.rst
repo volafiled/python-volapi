@@ -40,6 +40,17 @@ Basic
 Listening
 ~~~~~~~~~
 
+Getting urls of all the files in the room:
+
+.. code-block:: python
+
+   from volapi import Room
+
+   with Room("BEEPi", "ScrappyBoy") as BEEPi:
+      BEEPi.listen(once=True)
+      for f in r.files:
+         print(f.url)
+
 Some basic trolling can be achieved with just a few lines of code.
 
 .. code-block:: python
@@ -48,7 +59,7 @@ Some basic trolling can be achieved with just a few lines of code.
 
     with Room("BEEPi", "Stallman") as BEEPi:
         def interject(msg):
-            if "linux" in msg.msg.lower() and msg.nick != BEEPi.user.nick:
+            if "linux" in msg.lower() and msg.nick != BEEPi.user.nick:
                 BEEPi.post_chat("Don't you mean GNU/Linux?")
         BEEPi.add_listener("chat", interject)
         BEEPi.listen()
@@ -62,10 +73,10 @@ You can troll more than one room in parallel:
 
     with Room("BEEPi", "Stallman") as BEEPi, Room("HvoXwS", "Popman") as HvoXwS:
         def interjectBEEPi(msg, room):
-            if "linux" in msg.msg.lower() and msg.nick != room.user.nick:
+            if "linux" in msg.lower() and msg.nick != room.user.nick:
                 room.post_chat("Don't you mean GNU/Linux?")
         def interjectHvoXwS(msg, room):
-            if "hollywood" in msg.msg.lower() and msg.nick != room.user.nick:
+            if "hollywood" in msg.lower() and msg.nick != room.user.nick:
                 room.post_chat("Don't you mean GNU/Hollywood?")
         BEEPi.add_listener("chat", partial(interjectBEEPi, room=BEEPi))
         HvoXwS.add_listener("chat", partial(interjectHvoXwS, room=HvoXwS))

@@ -18,7 +18,6 @@ class User:
     def login(self, password):
         """Attempts to log in as the current user with given password"""
 
-        self.conn.room.ensure_cfg.wait()
         if self.logged_in:
             raise RuntimeError("User already logged in!")
 
@@ -51,7 +50,12 @@ class User:
         if not self.logged_in:
             raise RuntimeError("User is not logged in")
         if self.conn.connected:
-            self.conn.make_call("logout")
+            params = {"room": self.conn.room.room_id}
+            json_resp = self.conn.make_api_call("logout", params=params)
+            if not json_resp.get("success", False):
+                raise ValueError(f"Logout unsuccessful: {json_resp}")
+            self.conn.make_call("logout", params)
+            self.conn.cookies.pop("session")
         self.logged_in = False
 
     def change_nick(self, new_nick):

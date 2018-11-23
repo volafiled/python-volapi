@@ -10,8 +10,6 @@ import string
 
 from contextlib import contextmanager
 from html.parser import HTMLParser
-from collections import OrderedDict
-from threading import Barrier, BrokenBarrierError
 
 
 class MLStripper(HTMLParser):
@@ -55,6 +53,12 @@ def to_json(obj):
     return json.dumps(obj, separators=(",", ":"))
 
 
+def from_json(string):
+    """Create a Python object from a JSON string"""
+
+    return json.loads(string)
+
+
 @contextmanager
 def delayed_close(closable):
     """Delay close until this contextmanager dies"""
@@ -76,42 +80,3 @@ def delayed_close(closable):
         if close:
             setattr(closable, "close", close)
             closable.close()
-
-
-CALLBACKS = OrderedDict({0: None})
-
-
-class SmartEvent:
-
-    """Helper Event class that deals with lain's callbacks"""
-
-    def __init__(self):
-        self._last_id = list(CALLBACKS.keys())[-1]
-        self._data_to_return = None
-        self._cb_to_phase_out = None
-        CALLBACKS[self._last_id] = Barrier(2, timeout=3)
-        CALLBACKS[self._last_id + 1] = None
-
-    @property
-    def callback_id(self):
-        return str(self._last_id)
-
-    def wait(self):
-        if CALLBACKS[self._last_id] is not None:
-            try:
-                CALLBACKS[self._last_id].wait()
-            except BrokenBarrierError as ex:
-                raise ValueError(
-                    "The API call you made isn't callback-compatible!"
-                ) from ex
-        del CALLBACKS[self._cb_to_phase_out]
-        return self._data_to_return
-
-    def set(self, callback_id, data):
-        callback_id = int(callback_id)
-        self._cb_to_phase_out = callback_id
-        self._data_to_return = data
-        try:
-            CALLBACKS[callback_id].wait()
-        except BrokenBarrierError:
-            CALLBACKS[callback_id] = None
