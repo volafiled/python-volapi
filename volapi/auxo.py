@@ -97,7 +97,6 @@ class Awakener:
     event loop thread, therefore problem solved
     """
 
-    # pylint: disable=too-few-public-methods
     def __init__(self, condition):
         self.condition = condition
         self.count = 0
@@ -214,7 +213,7 @@ ARBITRATOR = ListenerArbitrator()
 class Listeners(namedtuple("Listeners", ("callbacks", "queue", "enlock", "lock"))):
     """Collection of Listeners
     `callbacks` are function objects.
-    `queue` holds data that will be send to each function object
+    `queue` holds data that will be sent to each function object
     in `callbacks` variable.
     Each issue of `process` method will run given callback
     against items in `queue` when their types match. After that

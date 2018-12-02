@@ -5,11 +5,11 @@ class User:
     """Used by Room. Currently not very useful by itself"""
 
     def __init__(self, nick, conn, max_len):
-        self._max_length = max_len
+        self.__max_length = max_len
         if nick is None:
             self.nick = ""
         else:
-            self._verify_username(nick)
+            self.__verify_username(nick)
         self.nick = nick
         self.conn = conn
         self.logged_in = False
@@ -22,10 +22,10 @@ class User:
             raise RuntimeError("User already logged in!")
 
         params = {"name": self.nick, "password": password}
-        json_resp = self.conn.make_api_call("login", params=params)
-        if "error" in json_resp:
-            raise ValueError(f"Login unsuccessful: {json_resp['error']}")
-        self.session = json_resp["session"]
+        resp = self.conn.make_api_call("login", params)
+        if "error" in resp:
+            raise RuntimeError(f"Login failed: {resp['error'].get('message') or resp['error']}")
+        self.session = resp["session"]
         self.conn.make_call("useSession", self.session)
         self.conn.cookies.update({"session": self.session})
         self.logged_in = True
@@ -51,9 +51,10 @@ class User:
             raise RuntimeError("User is not logged in")
         if self.conn.connected:
             params = {"room": self.conn.room.room_id}
-            json_resp = self.conn.make_api_call("logout", params=params)
-            if not json_resp.get("success", False):
-                raise ValueError(f"Logout unsuccessful: {json_resp}")
+            resp = self.conn.make_api_call("logout", params)
+            if not resp.get("success", False):
+                raise RuntimeError(f"Logout unsuccessful: "
+                        f"{resp['error'].get('message') or resp['error']}")
             self.conn.make_call("logout", params)
             self.conn.cookies.pop("session")
         self.logged_in = False
@@ -64,7 +65,7 @@ class User:
 
         if self.logged_in:
             raise RuntimeError("User must be logged out")
-        self._verify_username(new_nick)
+        self.__verify_username(new_nick)
 
         self.conn.make_call("command", self.nick, "nick", new_nick)
         self.nick = new_nick
@@ -76,13 +77,13 @@ class User:
             raise ValueError("Password must be at least 8 characters.")
 
         params = {"name": self.nick, "password": password}
-        json_resp = self.conn.make_api_call("register", params=params)
+        resp = self.conn.make_api_call("register", params)
 
-        if "error" in json_resp:
-            raise ValueError(f"User '{self.nick}' is already registered")
+        if "error" in resp:
+            raise RuntimeError(f"{resp['error'].get('message') or resp['error']}")
 
-        self.conn.make_call("useSession", json_resp["session"])
-        self.conn.cookies.update({"session": json_resp["session"]})
+        self.conn.make_call("useSession", resp["session"])
+        self.conn.cookies.update({"session": resp["session"]})
         self.logged_in = True
 
     def change_password(self, old_pass, new_pass):
@@ -92,18 +93,17 @@ class User:
             raise ValueError("Password must be at least 8 characters.")
 
         params = {"name": self.nick, "password": new_pass, "old_password": old_pass}
-        json_resp = self.conn.make_api_call("changePassword", params=params)
+        resp = self.conn.make_api_call("changePassword", params=params)
 
-        if "error" in json_resp:
+        if "error" in resp:
             raise ValueError("Wrong password.")
 
-    def _verify_username(self, username):
+    def __verify_username(self, username):
         """Raises an exception if the given username is not valid."""
 
-        if len(username) > self._max_length or len(username) < 3:
-            raise ValueError(
-                f"Username must be between 3 and {self._max_length} characters."
-            )
+        if len(username) > self.__max_length or len(username) < 3:
+            raise ValueError(f"Username must be between 3 "
+                f"and {self.__max_length} characters.")
         if any(c not in string.ascii_letters + string.digits for c in username):
             raise ValueError("Usernames can only contain alphanumeric characters.")
 
