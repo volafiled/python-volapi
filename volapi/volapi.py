@@ -14,7 +14,6 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 """
-# pylint: disable=missing-docstring,locally-disabled
 
 import logging
 import warnings
@@ -58,6 +57,7 @@ class Connection(requests.Session):
         agent = f"Volafile-API/{__version__}"
 
         self.headers.update({"User-Agent": agent})
+        self.cookies.update({"allow-download": "1"})
 
         self.lock = RLock()
         self.__conn_barrier = Barrier(2)
@@ -321,7 +321,7 @@ class Connection(requests.Session):
         ARBITRATOR.awaken()
 
     @property
-    def _listeners_for_thread(self):
+    def __listeners_for_thread(self):
         """All Listeners for the current thread"""
 
         thread = get_thread_ident()
@@ -335,7 +335,7 @@ class Connection(requests.Session):
             # pylint: disable=raising-bad-type
             raise self.exception
 
-        listeners = self._listeners_for_thread
+        listeners = self.__listeners_for_thread
         if not sum(len(l) for l in listeners):
             raise ValueError("No active listeners")
 
@@ -355,7 +355,7 @@ class Connection(requests.Session):
         if self.exception:
             # pylint: disable=raising-bad-type
             raise self.exception
-        listeners = self._listeners_for_thread
+        listeners = self.__listeners_for_thread
         return sum(l.process() for l in listeners) > 0
 
 
@@ -378,9 +378,7 @@ class Room:
         self.name = name
         self.password = password or ""
         self.key = key or ""
-        self.admin = False
-        self.staff = False
-        self.janitor = False
+        self.admin = self.staff = self.owner = self.janitor = False
         self.__user_info = dict()
         self.__user_count = 0
         self.__files = OrderedDict()
@@ -388,21 +386,24 @@ class Room:
         self.__room_score = 0.0
         self.__callbacks = dict()
         self.__cid = 0
-        self.__config = dict()
+        self.__config = dict(janitors=list(), disabled=False, owner=str())
         self.__cfg_mapping = dict(
-            adult="adult",
-            private="private",
-            disabled="disabled",
-            owner="owner",
-            title="name",
-            motd="motd",
-            max_title="max_room_name_length",
-            max_message="chat_max_message_length",
-            max_nick="chat_max_alias_length",
-            max_file="file_max_size",
-            session_lifetime="session_lifetime",
-            file_ttl="file_ttl",
-            creation_time="created_time",
+            adult=("adult", bool),
+            private=("private", bool),
+            disabled=("disabled", bool),
+            owner=("owner", str),
+            janitors=("janitors", list),
+            room_id=("room_id", str),
+            alias=("custom_room_id", str),
+            title=("name", str),
+            motd=("motd", str),
+            max_title=("max_room_name_length", int),
+            max_message=("chat_max_message_length", int),
+            max_nick=("chat_max_alias_length", int),
+            max_file=("file_max_size", int),
+            session_lifetime=("session_lifetime", int),
+            file_ttl=("file_ttl", int),
+            creation_time=("created_time", int),
         )
 
         self.conn = Connection(self)
@@ -437,7 +438,7 @@ class Room:
             self.close()
             raise
 
-    def add_prop(self, key, admin=False):
+    def __add_prop(self, key, admin=False):
         """Add gettable and settable room config property during runtime"""
 
         def getter(self):
@@ -448,11 +449,11 @@ class Room:
                 raise RuntimeError(
                     f"You can't set the {key} key without mod privileges"
                 )
-            self.set_config_value(self.__cfg_mapping[key], val)
+            self.__set_config_value(self.__cfg_mapping[key][0], val)
 
         setattr(self.__class__, key, property(getter, setter))
 
-    def set_config_value(self, key, value):
+    def __set_config_value(self, key, value):
         """Sets a value for a room config"""
 
         self.check_owner()
@@ -473,6 +474,7 @@ class Room:
 
     def __get_config(self):
         """ Really connect """
+
         if not self.name:
             room_resp = self.conn.get(BASE_URL + "/new")
             room_resp.raise_for_status()
@@ -490,28 +492,24 @@ class Room:
             config = self.conn.make_api_call("getRoomConfig", params)
             self.cs2 = config["checksum2"]
             self.__process_config(config)
-            self.add_prop("private")
-            self.add_prop("title")
-            self.add_prop("motd")
-            self.add_prop("adult")
-            self.add_prop("disabled", True)
-            self.add_prop("file_ttl", True)
-            return (
-                config.get("room_id", config.get("custom_room_id", self.name)),
-                config.get("owner"),
-            )
+            self.__add_prop("private")
+            self.__add_prop("title")
+            self.__add_prop("motd")
+            self.__add_prop("adult")
+            self.__add_prop("disabled", True)
+            self.__add_prop("file_ttl", True)
+            return (self.__config["room_id"], self.__config["owner"])
         except Exception:
             raise IOError(f"Failed to get room config for {self.name}")
 
     def __process_config(self, config):
-        defs = dict(private=True, disabled=False, owner="")
-        for k, v in defs.items():
-            if k not in self.__config:
-                self.__config[k] = v
         for k, v in self.__cfg_mapping.items():
-            if v not in config:
+            if v[0] not in config:
                 continue
-            self.__config[k] = config[v]
+            if isinstance(config[v[0]], v[1]):
+                self.__config[k] = config[v[0]]
+            else:
+                self.__config[k] = v[1]()
 
     def __repr__(self):
         return f"<Room({self.name}, {self.user.nick}, connected={self.connected})>"
@@ -819,7 +817,7 @@ class Room:
             with ARBITRATOR.condition:
                 ARBITRATOR.condition.wait()
         if is_admin:
-            if not self.admin or not self.staff:
+            if not self.admin and not self.staff:
                 raise RuntimeError("Can't modchat if you're not a mod or trusted")
             self.conn.make_call("command", self.user.nick, "a", msg)
             return
@@ -1020,12 +1018,44 @@ class Room:
                 time.sleep(to / 10000)
 
     def delete_files(self, ids):
-        """Remove one ore more files"""
+        """Remove one or more files"""
 
         self.check_owner()
         if not isinstance(ids, list):
             raise TypeError("You must specify list of files to delete!")
         self.conn.make_call("deleteFiles", ids)
+
+    def add_janitor(self, janitor):
+        """Add janitor to the room"""
+
+        if not self.owner and not self.admin:
+            raise RuntimeError("Not enough street creed to do this")
+
+        janitor = janitor.strip().lower()
+        if not janitor:
+            raise ValueError("Empty strings cannot be janitors")
+
+        if janitor in self.__config["janitors"]:
+            return
+
+        self.__config["janitors"].append(janitor)
+        self.__set_config_value("janitors", self.__config["janitors"])
+
+    def remove_janitor(self, janitor):
+        """Remove janitor from the room"""
+
+        if not self.owner and not self.admin:
+            raise RuntimeError("Not enough street creed to do this")
+
+        janitor = janitor.strip().lower()
+        if not janitor:
+            raise ValueError("Empty strings cannot be janitors")
+
+        if janitor not in self.__config["janitors"]:
+            return
+
+        self.__config["janitors"].remove(janitor)
+        self.__set_config_value("janitors", self.__config["janitors"])
 
     def ban(self, nick="", address="", hours=6, reason="spergout", options=None):
         self.check_admin()

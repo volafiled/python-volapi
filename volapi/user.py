@@ -24,7 +24,9 @@ class User:
         params = {"name": self.nick, "password": password}
         resp = self.conn.make_api_call("login", params)
         if "error" in resp:
-            raise RuntimeError(f"Login failed: {resp['error'].get('message') or resp['error']}")
+            raise RuntimeError(
+                f"Login failed: {resp['error'].get('message') or resp['error']}"
+            )
         self.session = resp["session"]
         self.conn.make_call("useSession", self.session)
         self.conn.cookies.update({"session": self.session})
@@ -53,8 +55,10 @@ class User:
             params = {"room": self.conn.room.room_id}
             resp = self.conn.make_api_call("logout", params)
             if not resp.get("success", False):
-                raise RuntimeError(f"Logout unsuccessful: "
-                        f"{resp['error'].get('message') or resp['error']}")
+                raise RuntimeError(
+                    f"Logout unsuccessful: "
+                    f"{resp['error'].get('message') or resp['error']}"
+                )
             self.conn.make_call("logout", params)
             self.conn.cookies.pop("session")
         self.logged_in = False
@@ -86,24 +90,13 @@ class User:
         self.conn.cookies.update({"session": resp["session"]})
         self.logged_in = True
 
-    def change_password(self, old_pass, new_pass):
-        """Changes the password for the currently logged in user."""
-
-        if len(new_pass) < 8:
-            raise ValueError("Password must be at least 8 characters.")
-
-        params = {"name": self.nick, "password": new_pass, "old_password": old_pass}
-        resp = self.conn.make_api_call("changePassword", params=params)
-
-        if "error" in resp:
-            raise ValueError("Wrong password.")
-
     def __verify_username(self, username):
         """Raises an exception if the given username is not valid."""
 
         if len(username) > self.__max_length or len(username) < 3:
-            raise ValueError(f"Username must be between 3 "
-                f"and {self.__max_length} characters.")
+            raise ValueError(
+                f"Username must be between 3 and {self.__max_length} characters."
+            )
         if any(c not in string.ascii_letters + string.digits for c in username):
             raise ValueError("Usernames can only contain alphanumeric characters.")
 
