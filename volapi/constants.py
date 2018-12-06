@@ -1,4 +1,4 @@
-__version__ = "5.11.0"
+__version__ = "5.12.0"
 
 MAX_UNACKED = 10
 BASE_URL = "https://volafile.org"
