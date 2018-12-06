@@ -1025,6 +1025,18 @@ class Room:
             raise TypeError("You must specify list of files to delete!")
         self.conn.make_call("deleteFiles", ids)
 
+    def transfer_owner(self, new_owner):
+        """You had good run at it, it's time for someone else to get dirty"""
+
+        if not self.owner and not self.admin:
+            raise RuntimeError("You need more street creed to do this")
+
+        new_owner = new_owner.strip().lower()
+        if not new_owner:
+            raise ValueError("Empty strings cannot be new owners")
+
+        self.__set_config_value("owner", new_owner)
+
     def add_janitor(self, janitor):
         """Add janitor to the room"""
 
