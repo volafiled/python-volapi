@@ -54,11 +54,12 @@ class ChatMessage(str):
 
     # pylint: disable=no-member
 
-    def __new__(cls, room, nick, msg, role=Roles.WHITE, options=None, **kw):
+    def __new__(cls, room, conn, nick, msg, role=Roles.WHITE, options=None, **kw):
         if role not in Roles:
             raise ValueError("Invalid role")
         obj = super().__new__(cls, msg)
         obj.room = room
+        obj.conn = conn
         obj.nick = nick
         obj.role = role
         obj.options = options or dict()
@@ -71,7 +72,7 @@ class ChatMessage(str):
         return obj
 
     @staticmethod
-    def from_data(room, data):
+    def from_data(room, conn, data):
         """Construct a ChatMessage instance from raw protocol data"""
         files = list()
         rooms = dict()
@@ -111,6 +112,7 @@ class ChatMessage(str):
 
         message = ChatMessage(
             room,
+            conn,
             nick,
             msg,
             role=Roles.from_options(options),
@@ -128,7 +130,7 @@ class ChatMessage(str):
         msg_id = self.data.get("id")
         if msg_id is None:
             raise RuntimeError("No message ID, you can't timeout system or mods")
-        self.room.conn.make_call("timeoutChat", msg_id, duration)
+        self.conn.make_call("timeoutChat", msg_id, duration)
 
     @property
     def white(self):

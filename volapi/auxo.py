@@ -21,10 +21,10 @@ from threading import Thread, Event
 from urllib.parse import urlsplit
 from copy import copy
 
-from autobahn.asyncio.websocket import WebSocketClientFactory
-from autobahn.asyncio.websocket import WebSocketClientProtocol
 from requests import Request
 from requests.cookies import get_cookie_header
+from autobahn.asyncio.websocket import WebSocketClientFactory
+from autobahn.asyncio.websocket import WebSocketClientProtocol
 
 
 logger = logging.getLogger(__name__)
@@ -289,20 +289,24 @@ class Protocol(WebSocketClientProtocol):
     async def onOpen(self):
         await self.conn.on_open()
 
-    def onMessage(self, payload, _isBinary):
+    def onMessage(self, payload, isBinary):
         if not payload:
             logger.warning("empty frame!")
             return
         try:
-            if isinstance(payload, bytes):
-                new_data = payload.decode("utf-8")
-            self.conn.on_message(new_data)
+            if not isBinary:
+                payload = payload.decode("utf-8")
+            self.conn.on_message(payload)
         except Exception:
             logger.exception("something went horribly wrong")
 
     async def onClose(self, _wasClean, _code, _reason):
         await self.conn.on_close()
         self.connected = False
+
+    def connection_lost(self, exc):
+        self.connected = False
+        self.reraise(exc)
 
     def reraise(self, ex):
         if hasattr(self, "conn"):

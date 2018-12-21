@@ -7,17 +7,16 @@ class File:
     """Basically a struct for a file's info on volafile, with an additional
     method to retrieve the file's URL."""
 
-    def __init__(self, room, file_id, name, **kw):
+    def __init__(self, room, conn, file_id, name, **kw):
         self.room = room
-        self.conn = room.conn
+        self.conn = conn
         self.fid = file_id
         self.name = name
-
         self.__additional = dict(kw)
 
     def __getattr__(self, name):
         if name not in (
-            "type",
+            "filetype",
             "size",
             "expire_time",
             "uploader",
@@ -33,18 +32,18 @@ class File:
             data = self.room.fileinfo(self.fid)
             self.name = data["name"]
             add = self.__additional
-            add["type"] = "other"
-            for file_type in ("book", "image", "video", "audio", "archive"):
-                if file_type in data:
-                    add["type"] = file_type
+            add["filetype"] = "other"
+            for filetype in ("book", "image", "video", "audio", "archive"):
+                if filetype in data:
+                    add["filetype"] = filetype
                     break
-            if add["type"] in ("image", "video", "audio"):
+            if add["filetype"] in ("image", "video", "audio"):
                 add["thumb"] = data.get("thumb", dict())
             # checksum is md5
             add["checksum"] = data["checksum"]
             add["expire_time"] = data["expires"] / 1000
             add["size"] = data["size"]
-            add["info"] = data.get(self.type, dict())
+            add["info"] = data.get(add["filetype"], dict())
             add["uploader"] = data["user"]
             if self.room.admin:
                 add["info"].update({"room": data.get("room")})
@@ -73,21 +72,21 @@ class File:
     @property
     def thumbnail(self):
         """Returns the thumbnail url for this image, audio, or video file.
-        Returns `None` if the file has no thumbnail"""
+        Returns empty string if the file has no thumbnail"""
 
-        if self.type not in ("video", "image", "audio"):
-            raise RuntimeError("Only video, audio and image files have thumbnails")
+        if self.filetype not in ("video", "image", "audio"):
+            raise RuntimeError("Only video, audio and image files can have thumbnails")
         thumb_srv = self.thumb.get("server")
         url = f"https://{thumb_srv}" if thumb_srv else None
         if url:
             return f"{url}/asset/{self.fid}/thumb"
-        return None
+        return ""
 
     @property
     def resolution(self):
         """Gets the resolution of this image or video file in format (W, H)"""
 
-        if self.type not in ("video", "image"):
+        if self.filetype not in ("video", "image"):
             raise RuntimeError("Only videos and images have resolutions")
         return (self.info["width"], self.info["height"])
 
@@ -95,7 +94,7 @@ class File:
     def duration(self):
         """Returns the duration in seconds of this audio or video file"""
 
-        if self.type not in ("video", "audio"):
+        if self.filetype not in ("video", "audio"):
             raise RuntimeError("Only videos and audio have durations")
         return self.info.get("length") or self.info.get("duration")
 
@@ -103,7 +102,7 @@ class File:
     def album(self):
         """Returns album name of audio file"""
 
-        if self.type not in ("audio",):
+        if self.filetype not in ("audio",):
             raise RuntimeError("Only audio files can have album names")
         return self.info.get("album")
 
@@ -111,7 +110,7 @@ class File:
     def artist(self):
         """Returns artist name of audio file"""
 
-        if self.type not in ("audio",):
+        if self.filetype not in ("audio",):
             raise RuntimeError("Only audio files can have artist names")
         return self.info.get("artist")
 
@@ -119,7 +118,7 @@ class File:
     def codec(self):
         """Returns codec type of media file"""
 
-        if self.type not in ("video", "audio"):
+        if self.filetype not in ("video", "audio"):
             raise RuntimeError("Only audio and video files can have codecs")
         return self.info.get("codec")
 
@@ -127,7 +126,7 @@ class File:
     def title(self):
         """Returns title of media file"""
 
-        if self.type not in ("video", "audio"):
+        if self.filetype not in ("video", "audio"):
             raise RuntimeError("Only audio and video files can have titles")
         return self.info.get("title")
 
