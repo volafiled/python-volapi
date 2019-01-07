@@ -9,6 +9,7 @@ class Roles(Enum):
     WHITE = "white"
     USER = "green"
     PRO = "pro"
+    OWNER = "owner"
     JANITOR = "janitor"
     DONOR = "donor"
     STAFF = "trusted user"
@@ -23,10 +24,12 @@ class Roles(Enum):
                 return cls.ADMIN
             if "staff" in options:
                 return cls.STAFF
-            if "pro" in options:
-                return cls.PRO
+            if "owner" in options:
+                return cls.OWNER
             if "janitor" in options:
                 return cls.JANITOR
+            if "pro" in options:
+                return cls.PRO
             if "donator" in options:
                 return cls.DONOR
             if "user" in options:
@@ -145,6 +148,10 @@ class ChatMessage(str):
         return self.role is Roles.PRO
 
     @property
+    def owner(self):
+        return self.role is Roles.OWNER
+
+    @property
     def janitor(self):
         return self.role is Roles.JANITOR
 
@@ -154,7 +161,7 @@ class ChatMessage(str):
 
     @property
     def green(self):
-        return self.pro or self.donor or self.user or self.janitor
+        return self.pro or self.donor or self.user or self.janitor or self.owner
 
     @property
     def staff(self):
@@ -188,6 +195,8 @@ class ChatMessage(str):
             prefix += "@"
         if self.pro:
             prefix += "✡"
+        if self.owner:
+            prefix += "👑"
         if self.janitor:
             prefix += "🧹"
         if self.donor:
