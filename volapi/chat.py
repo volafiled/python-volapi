@@ -163,7 +163,7 @@ class ChatMessage(str):
 
     @property
     def green(self):
-        return self.user
+        return self.user and not self.purple
 
     @property
     def staff(self):
