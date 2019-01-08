@@ -18,29 +18,29 @@ class Roles(Enum):
 
     @classmethod
     def from_options(cls, options):
-        role_list = []
+        role_set = set()
         user = "profile" in options
         if user:
             if "admin" in options:
-                role_list.append(cls.ADMIN)
+                role_set.add(cls.ADMIN)
             if "staff" in options:
-                role_list.append(cls.STAFF)
+                role_set.add(cls.STAFF)
             if "owner" in options:
-                role_list.append(cls.OWNER)
+                role_set.add(cls.OWNER)
             if "janitor" in options:
-                role_list.append(cls.JANITOR)
+                role_set.add(cls.JANITOR)
             if "pro" in options:
-                role_list.append(cls.PRO)
+                role_set.add(cls.PRO)
             if "donator" in options:
-                role_list.append(cls.DONOR)
+                role_set.add(cls.DONOR)
             if "user" in options:
-                role_list.append(cls.USER)
+                role_set.add(cls.USER)
         else:
             if "admin" in options or "staff" in options:
-                role_list.append(cls.SYSTEM)
-            else:
-                role_list.append(cls.WHITE)
-        return role_list
+                role_set.add(cls.SYSTEM)
+        if not role_set:
+            role_set.add(cls.WHITE)
+        return role_set
 
     def __str__(self):
         return self.value
@@ -58,15 +58,15 @@ class ChatMessage(str):
 
     # pylint: disable=no-member
 
-    def __new__(cls, room, conn, nick, msg, role=[Roles.WHITE], options=None, **kw):
-        for entry in role:
+    def __new__(cls, room, conn, nick, msg, roles={Roles.WHITE}, options=None, **kw):
+        for entry in roles:
             if entry not in Roles:
                 raise ValueError("Invalid role")
         obj = super().__new__(cls, msg)
         obj.room = room
         obj.conn = conn
         obj.nick = nick
-        obj.role = role
+        obj.roles = roles
         obj.options = options or dict()
 
         # Optionals
@@ -120,7 +120,7 @@ class ChatMessage(str):
             conn,
             nick,
             msg,
-            role=Roles.from_options(options),
+            roles=Roles.from_options(options),
             options=options,
             data=data,
             files=files,
@@ -139,27 +139,27 @@ class ChatMessage(str):
 
     @property
     def white(self):
-        return Roles.WHITE in self.role
+        return Roles.WHITE in self.roles
 
     @property
     def user(self):
-        return Roles.USER in self.role
+        return Roles.USER in self.roles
 
     @property
     def pro(self):
-        return Roles.PRO in self.role
+        return Roles.PRO in self.roles
 
     @property
     def owner(self):
-        return Roles.OWNER in self.role
+        return Roles.OWNER in self.roles
 
     @property
     def janitor(self):
-        return Roles.JANITOR in self.role
+        return Roles.JANITOR in self.roles
 
     @property
     def donor(self):
-        return Roles.DONOR in self.role
+        return Roles.DONOR in self.roles
 
     @property
     def green(self):
@@ -167,11 +167,11 @@ class ChatMessage(str):
 
     @property
     def staff(self):
-        return Roles.STAFF in self.role
+        return Roles.STAFF in self.roles
 
     @property
     def admin(self):
-        return Roles.ADMIN in self.role
+        return Roles.ADMIN in self.roles
 
     @property
     def purple(self):
@@ -179,7 +179,7 @@ class ChatMessage(str):
 
     @property
     def system(self):
-        return Roles.SYSTEM in self.role
+        return Roles.SYSTEM in self.roles
 
     @property
     def logged_in(self):
