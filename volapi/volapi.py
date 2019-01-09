@@ -116,14 +116,14 @@ class Connection(requests.Session):
             return
         LOGGER.debug("ack (%d)", self.proto.max_id)
         self.last_ack = self.proto.max_id
-        self.send_message("4" + to_json([self.proto.max_id]))
+        self.send_message(f"4{to_json([self.proto.max_id])}")
 
     def make_call(self, fun, *args):
         """Makes a regular API call"""
 
         obj = {"fn": fun, "args": list(args)}
         obj = [self.proto.max_id, [[0, ["call", obj]], self.proto.send_count]]
-        self.send_message("4" + to_json(obj))
+        self.send_message(f"4{to_json(obj)}")
         self.proto.send_count += 1
 
     def make_call_with_cb(self, fun, *args):
@@ -157,7 +157,7 @@ class Connection(requests.Session):
 
         if self.connected:
             obj = [self.proto.max_id, [[2], self.proto.send_count]]
-            ARBITRATOR.send_sync_message(self.proto, "4" + to_json(obj))
+            ARBITRATOR.send_sync_message(self.proto, f"4{to_json(obj)}")
             self.proto.send_count += 1
             ARBITRATOR.close(self.proto)
         self.listeners.clear()
@@ -187,10 +187,7 @@ class Connection(requests.Session):
             except Exception as ex:
                 LOGGER.exception("Failed to ping")
                 try:
-                    try:
-                        raise IOError("Ping failed") from ex
-                    except Exception as ioex:
-                        self.reraise(ioex)
+                    self.reraise(ex)
                 except Exception:
                     LOGGER.exception(
                         "failed to force close connection after ping error"
@@ -220,7 +217,8 @@ class Connection(requests.Session):
                 self.send_ack()
             self.handler.add_data(data)
         elif data == [2]:
-            LOGGER.exception("Server send close message")
+            LOGGER.debug("Server send close message")
+            self.room.close()
         elif data == [0]:
             LOGGER.warning("Some IO Error, maybe reconnect after it?")
             # raise IOError("Force disconnect?")
@@ -396,7 +394,6 @@ class Room:
                 else:
                     user = random_id(6)
             self.user = User(user, self.conn, self.config.max_nick)
-            # self.user = User(user, self.conn, self.__config["max_nick"])
             self.conn.connect(
                 username=user, checksum=checksum, password=self.password, key=self.key
             )
@@ -579,7 +576,7 @@ class Room:
 
         if len(msg) > self.config.max_message:
             raise ValueError(
-                f"Chat message must be at most " f"{self.config.max_message} characters"
+                f"Chat message must be at most {self.config.max_message} characters."
             )
         while not self.user.nick:
             with ARBITRATOR.condition:
@@ -723,26 +720,33 @@ class Room:
 
     @user_info.setter
     def user_info(self, kv):
-        """Sets user_info dict entry through a tuple"""
+        """Sets user_info dict entry through a tuple."""
 
         key, value = kv
         self.__user_info[key] = value
 
     def check_owner(self):
+        """Helper method that rises an error if we don't have enough
+        privileges to do owner related tasks."""
+
         if (not self.owner) and (not self.admin) and (not self.janitor):
             raise RuntimeError("Not enough auths do do that, big boy")
 
     def check_admin(self):
+        """Helper method that rises an error if we do tasks that
+        require admin/mod privileges and we aren't mod ourselves."""
+
         if not self.admin:
             raise RuntimeError("You must be an admin to do that")
 
     def clear(self):
-        """Clears the cached information, if any"""
+        """Clears the cached information, if any."""
 
         self.__files.clear()
 
     def fileinfo(self, fid):
-        """Ask lain about what he knows about given file"""
+        """Ask lain about what he knows about given file. If the given file
+        exists in the file dict, it will get updated."""
 
         if not isinstance(fid, str):
             raise TypeError("Your file ID must be a string")
@@ -752,6 +756,8 @@ class Room:
                 warnings.warn(
                     f"Your query for file with ID: '{fid}' failed.", RuntimeWarning
                 )
+            elif fid in self.__files and not self.__files[fid].updated:
+                self.__files[fid].fileupdate(info)
         except queue.Empty as ex:
             raise ValueError(
                 "lain didn't produce a callback!\n"
@@ -841,7 +847,7 @@ class Room:
     def ban(self, nick="", address="", hours=6, reason="spergout", options=None):
         self.check_admin()
         if nick == "" and address == "":
-            raise RuntimeError("I got no one to ban")
+            return
         who = []
         options = options or dict()
         if address != "":
@@ -870,7 +876,7 @@ class Room:
     def unban(self, nick="", address="", reason="", options=None):
         self.check_admin()
         if nick == "" and address == "":
-            raise RuntimeError("I got no one to unban")
+            return
         who = []
         options = options or dict()
         if address != "":

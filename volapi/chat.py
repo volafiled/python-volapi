@@ -106,7 +106,7 @@ class ChatMessage(str):
 
                 warnings.warn(f"unknown message type '{ptype}'", Warning)
 
-        nick = data.get("nick", "n/a")
+        nick = data.get("nick") or data.get("user")
         options = data.get("options", dict())
         data = data.get("data", dict())
 

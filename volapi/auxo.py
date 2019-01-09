@@ -305,8 +305,8 @@ class Protocol(WebSocketClientProtocol):
         self.connected = False
 
     def connection_lost(self, exc):
-        self.connected = False
         self.reraise(exc)
+        self.connected = False
 
     def reraise(self, ex):
         if hasattr(self, "conn"):

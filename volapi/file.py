@@ -12,6 +12,8 @@ class File:
         self.conn = conn
         self.fid = file_id
         self.name = name
+        # Flag to check if we queried `fileinfo` for this file already
+        self.updated = False
         self.__additional = dict(kw)
 
     def __getattr__(self, name):
@@ -29,27 +31,33 @@ class File:
             return self.__additional[name]
         except KeyError:
             self.conn.queues_enabled = False
-            data = self.room.fileinfo(self.fid)
-            self.name = data["name"]
-            add = self.__additional
-            add["filetype"] = "other"
-            for filetype in ("book", "image", "video", "audio", "archive"):
-                if filetype in data:
-                    add["filetype"] = filetype
-                    break
-            if add["filetype"] in ("image", "video", "audio"):
-                add["thumb"] = data.get("thumb", dict())
-            # checksum is md5
-            add["checksum"] = data["checksum"]
-            add["expire_time"] = data["expires"] / 1000
-            add["size"] = data["size"]
-            add["info"] = data.get(add["filetype"], dict())
-            add["uploader"] = data["user"]
-            if self.room.admin:
-                add["info"].update({"room": data.get("room")})
-                add["info"].update({"uploader_ip": data.get("uploader_ip")})
+            self.room.fileinfo(self.fid)
             self.conn.queues_enabled = True
             return self.__additional[name]
+
+    def fileupdate(self, data):
+        """Method to update extra metadata fields with dict obtained
+        through `fileinfo`"""
+
+        self.name = data["name"]
+        add = self.__additional
+        add["filetype"] = "other"
+        for filetype in ("book", "image", "video", "audio", "archive"):
+            if filetype in data:
+                add["filetype"] = filetype
+                break
+        if add["filetype"] in ("image", "video", "audio"):
+            add["thumb"] = data.get("thumb", dict())
+        # checksum is md5
+        add["checksum"] = data["checksum"]
+        add["expire_time"] = data["expires"] / 1000
+        add["size"] = data["size"]
+        add["info"] = data.get(add["filetype"], dict())
+        add["uploader"] = data["user"]
+        if self.room.admin:
+            add["info"].update({"room": data.get("room")})
+            add["info"].update({"uploader_ip": data.get("uploader_ip")})
+        self.updated = True
 
     @property
     def url(self):
@@ -71,16 +79,14 @@ class File:
 
     @property
     def thumbnail(self):
-        """Returns the thumbnail url for this image, audio, or video file.
+        """Returns the thumbnail's url for this image, audio, or video file.
         Returns empty string if the file has no thumbnail"""
 
         if self.filetype not in ("video", "image", "audio"):
             raise RuntimeError("Only video, audio and image files can have thumbnails")
         thumb_srv = self.thumb.get("server")
         url = f"https://{thumb_srv}" if thumb_srv else None
-        if url:
-            return f"{url}/asset/{self.fid}/thumb"
-        return ""
+        return f"{url}/asset/{self.fid}/thumb" if url else ""
 
     @property
     def resolution(self):
