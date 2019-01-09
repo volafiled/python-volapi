@@ -9,6 +9,7 @@ class Roles(Enum):
     WHITE = "white"
     USER = "green"
     PRO = "pro"
+    OWNER = "owner"
     JANITOR = "janitor"
     DONOR = "donor"
     STAFF = "trusted user"
@@ -17,26 +18,29 @@ class Roles(Enum):
 
     @classmethod
     def from_options(cls, options):
+        role_set = set()
         user = "profile" in options
         if user:
             if "admin" in options:
-                return cls.ADMIN
+                role_set.add(cls.ADMIN)
             if "staff" in options:
-                return cls.STAFF
-            if "pro" in options:
-                return cls.PRO
+                role_set.add(cls.STAFF)
+            if "owner" in options:
+                role_set.add(cls.OWNER)
             if "janitor" in options:
-                return cls.JANITOR
+                role_set.add(cls.JANITOR)
+            if "pro" in options:
+                role_set.add(cls.PRO)
             if "donator" in options:
-                return cls.DONOR
+                role_set.add(cls.DONOR)
             if "user" in options:
-                return cls.USER
+                role_set.add(cls.USER)
         else:
-            if "admin" in options:
-                return cls.SYSTEM
-            if "staff" in options:
-                return cls.SYSTEM
-        return cls.WHITE
+            if "admin" in options or "staff" in options:
+                role_set.add(cls.SYSTEM)
+        if not role_set:
+            role_set.add(cls.WHITE)
+        return role_set
 
     def __str__(self):
         return self.value
@@ -54,14 +58,15 @@ class ChatMessage(str):
 
     # pylint: disable=no-member
 
-    def __new__(cls, room, conn, nick, msg, role=Roles.WHITE, options=None, **kw):
-        if role not in Roles:
-            raise ValueError("Invalid role")
+    def __new__(cls, room, conn, nick, msg, roles={Roles.WHITE}, options=None, **kw):
+        for entry in roles:
+            if entry not in Roles:
+                raise ValueError("Invalid role")
         obj = super().__new__(cls, msg)
         obj.room = room
         obj.conn = conn
         obj.nick = nick
-        obj.role = role
+        obj.roles = roles
         obj.options = options or dict()
 
         # Optionals
@@ -115,7 +120,7 @@ class ChatMessage(str):
             conn,
             nick,
             msg,
-            role=Roles.from_options(options),
+            roles=Roles.from_options(options),
             options=options,
             data=data,
             files=files,
@@ -134,35 +139,39 @@ class ChatMessage(str):
 
     @property
     def white(self):
-        return self.role is Roles.WHITE
+        return Roles.WHITE in self.roles
 
     @property
     def user(self):
-        return self.role is Roles.USER
+        return Roles.USER in self.roles
 
     @property
     def pro(self):
-        return self.role is Roles.PRO
+        return Roles.PRO in self.roles
+
+    @property
+    def owner(self):
+        return Roles.OWNER in self.roles
 
     @property
     def janitor(self):
-        return self.role is Roles.JANITOR
+        return Roles.JANITOR in self.roles
 
     @property
     def donor(self):
-        return self.role is Roles.DONOR
+        return Roles.DONOR in self.roles
 
     @property
     def green(self):
-        return self.pro or self.donor or self.user or self.janitor
+        return self.user and not self.purple
 
     @property
     def staff(self):
-        return self.role is Roles.STAFF
+        return Roles.STAFF in self.roles
 
     @property
     def admin(self):
-        return self.role is Roles.ADMIN
+        return Roles.ADMIN in self.roles
 
     @property
     def purple(self):
@@ -170,11 +179,11 @@ class ChatMessage(str):
 
     @property
     def system(self):
-        return self.role is Roles.SYSTEM
+        return Roles.SYSTEM in self.roles
 
     @property
     def logged_in(self):
-        return self.green or self.purple or self.janitor or self.pro
+        return self.green or self.purple
 
     @property
     def ip_address(self):
@@ -186,6 +195,8 @@ class ChatMessage(str):
         prefix = ""
         if self.purple:
             prefix += "@"
+        if self.owner:
+            prefix += "👑"
         if self.pro:
             prefix += "✡"
         if self.janitor:
