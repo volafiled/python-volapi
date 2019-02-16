@@ -401,7 +401,7 @@ class Room:
                 self.owner = False
             else:
                 # can't really be abused because you can only manage stuff as logged user
-                self.owner = True if owner.lower() == self.user.nick.lower() else False
+                self.owner = bool(owner.lower() == self.user.nick.lower())
 
             if subscribe and other and other.user and other.user.logged_in:
                 self.user.login_transplant(other.user)
@@ -450,23 +450,25 @@ class Room:
                 self.name = re.search(r"r/(.+?)$", url).group(1)
             except Exception:
                 raise IOError("Failed to create room")
-        try:
-            params = {"room": self.name}
-            if self.key:
-                params["roomKey"] = self.key
-            if self.password:
-                params["password"] = self.password
-            config = self.conn.make_api_call("getRoomConfig", params)
-            self.config.update(config)
-            self.__add_prop("private")
-            self.__add_prop("title")
-            self.__add_prop("motd")
-            self.__add_prop("adult")
-            self.__add_prop("disabled", True)
-            self.__add_prop("file_ttl", True)
-            return (self.config.room_id, self.config.owner, config["checksum2"])
-        except Exception:
-            raise IOError(f"Failed to get room config for {self.name}")
+        params = {"room": self.name}
+        if self.key:
+            params["roomKey"] = self.key
+        if self.password:
+            params["password"] = self.password
+        config = self.conn.make_api_call("getRoomConfig", params)
+        if "error" in config:
+            raise RuntimeError(
+                f"Failed to get room config for {self.name}\n"
+                f"{config['error'].get('message') or config['error']}"
+            )
+        self.config.update(config)
+        self.__add_prop("private")
+        self.__add_prop("title")
+        self.__add_prop("motd")
+        self.__add_prop("adult")
+        self.__add_prop("disabled", True)
+        self.__add_prop("file_ttl", True)
+        return (self.config.room_id, self.config.owner, config["checksum2"])
 
     def __repr__(self):
         return f"<Room({self.name}, {self.user.nick}, connected={self.connected})>"

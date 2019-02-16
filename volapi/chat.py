@@ -58,15 +58,15 @@ class ChatMessage(str):
 
     # pylint: disable=no-member
 
-    def __new__(cls, room, conn, nick, msg, roles={Roles.WHITE}, options=None, **kw):
-        for entry in roles:
-            if entry not in Roles:
-                raise ValueError("Invalid role")
+    def __new__(cls, room, conn, nick, msg, roles=None, options=None, **kw):
         obj = super().__new__(cls, msg)
         obj.room = room
         obj.conn = conn
         obj.nick = nick
-        obj.roles = roles
+        obj.roles = roles or {Roles.WHITE}
+        for entry in obj.roles:
+            if entry not in Roles:
+                raise ValueError("Invalid role")
         obj.options = options or dict()
 
         # Optionals
