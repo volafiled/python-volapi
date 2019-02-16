@@ -540,7 +540,7 @@ class Room:
         this method was called."""
 
         self.__expire_files()
-        return list(self.__files.values())
+        return self.__files.values()
 
     @property
     def filedict(self):
@@ -549,7 +549,7 @@ class Room:
         this method was called."""
 
         self.__expire_files()
-        return dict(self.__files)
+        return self.__files
 
     @filedict.setter
     def filedict(self, kv):
