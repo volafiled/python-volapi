@@ -18,7 +18,6 @@ along with Volapi.  If not, see <http://www.gnu.org/licenses/>.
 import logging
 import warnings
 import asyncio
-import queue
 import os
 import re
 import time
@@ -28,6 +27,7 @@ from collections import defaultdict
 from contextlib import suppress
 from threading import get_ident as get_thread_ident
 from threading import Barrier, RLock
+from concurrent.futures import TimeoutError as FutureTimeoutError
 
 
 import requests
@@ -116,24 +116,26 @@ class Connection(requests.Session):
             return
         LOGGER.debug("ack (%d)", self.proto.max_id)
         self.last_ack = self.proto.max_id
-        self.send_message(f"4{to_json([self.proto.max_id])}")
+        self.send_message(b'4' + to_json([self.proto.max_id]))
 
     def make_call(self, fun, *args):
         """Makes a regular API call"""
 
         obj = {"fn": fun, "args": list(args)}
         obj = [self.proto.max_id, [[0, ["call", obj]], self.proto.send_count]]
-        self.send_message(f"4{to_json(obj)}")
+        self.send_message(b'4' + to_json(obj))
         self.proto.send_count += 1
 
     def make_call_with_cb(self, fun, *args):
         """Makes an API call with a callback to wait for"""
 
-        cid, event = self.handler.register_callback()
-        argscp = list(args)
-        argscp.append(cid)
-        self.make_call(fun, *argscp)
-        return event
+        async def call_and_wait():
+            cid, event = self.handler.register_callback()
+            argscp = list(args)
+            argscp.append(cid)
+            self.make_call(fun, *argscp)
+            return await event
+        return asyncio.run_coroutine_threadsafe(call_and_wait(), ARBITRATOR.loop)
 
     def make_api_call(self, call, params):
         """Make a REST API call"""
@@ -157,7 +159,7 @@ class Connection(requests.Session):
 
         if self.connected:
             obj = [self.proto.max_id, [[2], self.proto.send_count]]
-            ARBITRATOR.send_sync_message(self.proto, f"4{to_json(obj)}")
+            ARBITRATOR.send_sync_message(self.proto, b'4' + to_json(obj))
             self.proto.send_count += 1
             ARBITRATOR.close(self.proto)
         self.listeners.clear()
@@ -748,19 +750,23 @@ class Room:
 
     def fileinfo(self, fid):
         """Ask lain about what he knows about given file. If the given file
-        exists in the file dict, it will get updated."""
+        exists in the file dict, it will get updated. If the file was updated
+        already, this will return File instance of it."""
 
         if not isinstance(fid, str):
             raise TypeError("Your file ID must be a string")
+        has_fid = fid in self.__files
+        if has_fid and self.__files[fid].updated:
+            return self.__files[fid]
         try:
-            info = self.conn.make_call_with_cb("getFileinfo", fid).get(timeout=5)
+            info = self.conn.make_call_with_cb("getFileinfo", fid).result(5)
             if not info:
                 warnings.warn(
                     f"Your query for file with ID: '{fid}' failed.", RuntimeWarning
                 )
-            elif fid in self.__files and not self.__files[fid].updated:
+            elif has_fid:
                 self.__files[fid].fileupdate(info)
-        except queue.Empty as ex:
+        except (FutureTimeoutError, asyncio.CancelledError) as ex:
             raise ValueError(
                 "lain didn't produce a callback!\n"
                 "Are you sure your query wasn't malformed?"

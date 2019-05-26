@@ -33,7 +33,6 @@ def find_version(filename):
             return version_match.group(1)
         raise RuntimeError("Unable to find version string.")
 
-
 setup(
     name="volapi",
     version=find_version("volapi/constants.py"),

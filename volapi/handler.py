@@ -1,12 +1,12 @@
 import logging
 import warnings
-import queue
 
 from functools import partial
 
 
 from .file import File
 from .chat import ChatMessage
+from .auxo import ARBITRATOR
 
 LOGGER = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ class Handler:
         self.__callbacks = dict()
         self.__cid = 0
         for g in GENERICS:
-            setattr(self, self.__head + g, partial(self._handle_generic, g))
+            setattr(self, f"{self.__head}{g}", partial(self._handle_generic, g))
 
     def add_data(self, rawdata):
         """Add data to given room's state"""
@@ -51,7 +51,7 @@ class Handler:
                 except IndexError:
                     data = dict()
                 try:
-                    method = getattr(self, self.__head + target)
+                    method = getattr(self, f"{self.__head}{target}")
                     method(data)
                 except AttributeError:
                     self._handle_unhandled(target, data)
@@ -65,7 +65,7 @@ class Handler:
 
         cid = str(self.__cid)
         self.__cid += 1
-        event = queue.Queue()
+        event = ARBITRATOR.loop.create_future()
         self.__callbacks[cid] = event
         return cid, event
 
@@ -103,14 +103,14 @@ class Handler:
         if not event:
             return
         if not args:
-            event.put(args)
+            event.cancel()
             return
         err, info = args
         if err is None:
-            event.put(info)
+            event.set_result(info)
         else:
             LOGGER.warning("Callback returned error of %s", str(err))
-            event.put(err)
+            event.set_result(err)
 
     def _handle_userCount(self, data):
         """Handle user count changes"""

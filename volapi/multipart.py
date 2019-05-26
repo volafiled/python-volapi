@@ -6,13 +6,17 @@ See LICENSE
 """
 
 import collections
-import json
 import os
 import sys
 import uuid
 
 from io import BytesIO
 from urllib.parse import quote
+
+try:
+    import orjson as json
+except ImportError:
+    import json
 
 
 def generate_boundary():

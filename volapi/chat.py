@@ -100,8 +100,7 @@ class ChatMessage(str):
             elif ptype == "room":
                 roomid = part["id"]
                 rooms[roomid] = part["name"]
-                roomid = f"#{roomid}"
-                msg += roomid
+                msg += f"#{roomid}"
             elif ptype == "url":
                 msg += part["text"]
             elif ptype == "raw":

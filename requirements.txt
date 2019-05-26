@@ -1,2 +1,3 @@
 autobahn
 requests
+orjson

@@ -4,12 +4,16 @@ Copyright © 2015 RealDolos
 See LICENSE
 """
 
-import json
 import random
 import string
 
 from contextlib import contextmanager
 from html.parser import HTMLParser
+
+try:
+    import orjson as json
+except ImportError:
+    import json
 
 
 class MLStripper(HTMLParser):
@@ -50,7 +54,7 @@ def random_id(length):
 def to_json(obj):
     """Create a compact JSON string from an object"""
 
-    return json.dumps(obj, separators=(",", ":"))
+    return json.dumps(obj)
 
 
 def from_json(string):
