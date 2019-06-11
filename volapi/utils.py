@@ -54,7 +54,10 @@ def random_id(length):
 def to_json(obj):
     """Create a compact JSON string from an object"""
 
-    return json.dumps(obj)
+    byte_dump = json.dumps(obj)
+    if isinstance(byte_dump, bytes):
+        return byte_dump
+    return byte_dump.encode("utf8")
 
 
 def from_json(string):
@@ -74,7 +77,6 @@ def delayed_close(closable):
         # pylint: disable=unused-argument
         def replacement_close(*args, **kw):
             """ No op """
-            pass
 
         # pylint: enable=unused-argument
         setattr(closable, "close", replacement_close)
