@@ -212,9 +212,8 @@ class Connection(requests.Session):
         elif isinstance(data, list) and len(data) > 1:
             data = data[1:]
             last_ack = int(data[-1][-1])
-            need_ack = last_ack > self.proto.max_id + MAX_UNACKED
             self.proto.max_id = last_ack
-            if need_ack:
+            if last_ack > self.proto.max_id + MAX_UNACKED:
                 LOGGER.debug("needing to ack (%d/%d)", last_ack, self.proto.max_id)
                 self.send_ack()
             self.handler.add_data(data)
@@ -857,7 +856,7 @@ class Room:
         if nick == "" and address == "":
             return
         who = []
-        options = options or dict()
+        options = options or {}
         if address != "":
             if isinstance(address, str):
                 who.append({"ip": address})
@@ -886,7 +885,7 @@ class Room:
         if nick == "" and address == "":
             return
         who = []
-        options = options or dict()
+        options = options or {}
         if address != "":
             if isinstance(address, str) and address != "":
                 who.append({"ip": address})

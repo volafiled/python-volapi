@@ -67,21 +67,21 @@ class ChatMessage(str):
         for entry in obj.roles:
             if entry not in Roles:
                 raise ValueError("Invalid role")
-        obj.options = options or dict()
+        obj.options = options or {}
 
         # Optionals
-        obj.files = kw.get("files", list())
-        obj.rooms = kw.get("rooms", dict())
-        obj.data = kw.get("data", dict())
+        obj.files = kw.get("files", [])
+        obj.rooms = kw.get("rooms", {})
+        obj.data = kw.get("data", {})
         obj.mymsg = obj.data.get("self", False)
         return obj
 
     @staticmethod
     def from_data(room, conn, data):
         """Construct a ChatMessage instance from raw protocol data"""
-        files = list()
-        rooms = dict()
-        msg = str()
+        files = []
+        rooms = {}
+        msg = ""
 
         for part in data["message"]:
             ptype = part["type"]
@@ -111,8 +111,8 @@ class ChatMessage(str):
                 warnings.warn(f"unknown message type '{ptype}'", Warning)
 
         nick = data.get("nick") or data.get("user")
-        options = data.get("options", dict())
-        data = data.get("data", dict())
+        options = data.get("options", {})
+        data = data.get("data", {})
 
         message = ChatMessage(
             room,
@@ -131,7 +131,7 @@ class ChatMessage(str):
         self.room.check_owner()
         if duration <= 0:
             raise RuntimeError("Timeout duration have to be a positive number")
-        msg_id = self.data.get("id")
+        msg_id = self.id
         if msg_id is None:
             raise RuntimeError("No message ID, you can't timeout system or mods")
         self.conn.make_call("timeoutChat", msg_id, duration)
@@ -189,6 +189,13 @@ class ChatMessage(str):
         """Returns the uploader ip if available"""
 
         return self.data.get("ip")
+
+    @property
+    def id(self):
+        """Returns id of the given chat message. Usefull if we want
+        to check which messages are being removed by mods."""
+
+        return self.data.get("id")
 
     def __repr__(self):
         prefix = ""

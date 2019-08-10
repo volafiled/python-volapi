@@ -26,7 +26,7 @@ class Handler:
         self.conn = conn
         self.room = conn.room
         self.__head = "_handle_"
-        self.__callbacks = dict()
+        self.__callbacks = {}
         self.__cid = 0
         for g in GENERICS:
             setattr(self, f"{self.__head}{g}", partial(self._handle_generic, g))
@@ -49,7 +49,7 @@ class Handler:
                 try:
                     data = item[1]
                 except IndexError:
-                    data = dict()
+                    data = {}
                 try:
                     method = getattr(self, f"{self.__head}{target}")
                     method(data)
@@ -135,6 +135,15 @@ class Handler:
                 self.conn.enqueue_data(k, getattr(self.room, k))
             self.room.user_info = k, v
         self.conn.enqueue_data("user_info", self.room.user_info)
+
+    def _handle_removeMessages(self, data):
+        """Handle mods purging stuff"""
+
+        try:
+            removed_msgs = data.get("msgIds")
+        except AttributeError:
+            removed_msgs = []
+        self.conn.enqueue_data("removed_messages", removed_msgs)
 
     def _handle_key(self, data):
         """Handle keys"""

@@ -47,12 +47,12 @@ class File:
                 add["filetype"] = filetype
                 break
         if add["filetype"] in ("image", "video", "audio"):
-            add["thumb"] = data.get("thumb", dict())
+            add["thumb"] = data.get("thumb", {})
         # checksum is md5
         add["checksum"] = data["checksum"]
         add["expire_time"] = data["expires"] / 1000
         add["size"] = data["size"]
-        add["info"] = data.get(add["filetype"], dict())
+        add["info"] = data.get(add["filetype"], {})
         add["uploader"] = data["user"]
         if self.room.admin:
             add["info"].update({"room": data.get("room")})
