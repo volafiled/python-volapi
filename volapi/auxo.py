@@ -10,14 +10,9 @@ import logging
 import sys
 import asyncio
 
-from collections import namedtuple
-from collections import defaultdict
+from collections import namedtuple, defaultdict
 from functools import wraps
-from threading import get_ident
-from threading import Barrier
-from threading import Condition
-from threading import RLock
-from threading import Thread, Event
+from threading import Thread, Event, RLock, Condition, Barrier, get_ident
 from urllib.parse import urlsplit
 from copy import copy
 

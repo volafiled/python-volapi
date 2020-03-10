@@ -536,12 +536,12 @@ class Room:
 
     @property
     def files(self):
-        """Returns list of File objects for this room.
+        """Returns copied list of File objects for this room.
         Note: This will only reflect the files at the time
         this method was called."""
 
         self.__expire_files()
-        return self.__files.values()
+        return list(self.__files.values())
 
     @property
     def filedict(self):

@@ -5,12 +5,12 @@ Copyright © 2015 RealDolos
 See LICENSE
 """
 
-import collections
 import os
 import sys
 import uuid
 
 from io import BytesIO
+from collections.abc import Mapping
 from urllib.parse import quote
 
 try:
@@ -43,7 +43,7 @@ def make_streams(name, value, boundary, encoding):
     mime = None
 
     # user passed in a special dict.
-    if isinstance(value, collections.Mapping) and "name" in value and "value" in value:
+    if isinstance(value, Mapping) and "name" in value and "value" in value:
         filename = value["name"]
         try:
             mime = value["mime"]
