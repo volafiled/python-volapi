@@ -183,7 +183,7 @@ class Handler:
                 LOGGER.exception("bad file")
                 pprint.pprint(f)
         if initial:
-            self.conn.enqueue_data("initial_files", self.room.files)
+            self.conn.enqueue_data("initial_files", self.room.filedict.values())
 
     def _handle_delete_file(self, data):
         """Handle files being removed"""
