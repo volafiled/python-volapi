@@ -37,7 +37,14 @@ from .config import Config
 from .user import User
 from .multipart import Data
 from .utils import delayed_close, random_id, to_json, from_json
-from .constants import __version__, MAX_UNACKED, BASE_URL, BASE_REST_URL, BASE_WS_URL
+from .constants import (
+    __version__,
+    MAX_UNACKED,
+    BASE_URL,
+    BASE_REST_URL,
+    BASE_WS_URL,
+    REST,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -116,14 +123,14 @@ class Connection(requests.Session):
             return
         LOGGER.debug("ack (%d)", self.proto.max_id)
         self.last_ack = self.proto.max_id
-        self.send_message(b'4' + to_json([self.proto.max_id]))
+        self.send_message(b"4" + to_json([self.proto.max_id]))
 
     def make_call(self, fun, *args):
         """Makes a regular API call"""
 
         obj = {"fn": fun, "args": list(args)}
         obj = [self.proto.max_id, [[0, ["call", obj]], self.proto.send_count]]
-        self.send_message(b'4' + to_json(obj))
+        self.send_message(b"4" + to_json(obj))
         self.proto.send_count += 1
 
     def make_call_with_cb(self, fun, *args):
@@ -135,18 +142,20 @@ class Connection(requests.Session):
             argscp.append(cid)
             self.make_call(fun, *argscp)
             return await event
+
         return asyncio.run_coroutine_threadsafe(call_and_wait(), ARBITRATOR.loop)
 
-    def make_api_call(self, call, params):
+    def make_api_call(self, call, params, heads=None, server=None):
         """Make a REST API call"""
 
-        if not isinstance(params, dict):
+        heads = heads or {}
+        server = f"https://{server}{REST}" if server else BASE_REST_URL
+        if not isinstance(params, dict) or not isinstance(heads, dict):
             raise ValueError("params argument must be a dictionary")
-        kw = dict(
-            params=params,
-            headers={"Origin": BASE_URL, "Referer": f"{BASE_URL}/r/{self.room.name}"},
-        )
-        return self.get(BASE_REST_URL + call, **kw).json()
+        headers = {"Origin": BASE_URL, "Referer": self.room.url}
+        headers.update(heads)
+        kw = dict(params=params, headers=headers)
+        return from_json(self.get(f"{server}{call}", **kw).text)
 
     def reraise(self, ex):
         """Reraise an exception passed by the event thread"""
@@ -159,7 +168,7 @@ class Connection(requests.Session):
 
         if self.connected:
             obj = [self.proto.max_id, [[2], self.proto.send_count]]
-            ARBITRATOR.send_sync_message(self.proto, b'4' + to_json(obj))
+            ARBITRATOR.send_sync_message(self.proto, b"4" + to_json(obj))
             self.proto.send_count += 1
             ARBITRATOR.close(self.proto)
         self.listeners.clear()
@@ -373,6 +382,7 @@ class Room:
         user is your user name, if none then generates one for you"""
 
         self.name = name
+        self.url = f"{BASE_URL}/r/{self.name}"
         self.password = password or ""
         self.key = key or ""
         self.admin = self.staff = self.owner = self.janitor = False
@@ -608,7 +618,6 @@ class Room:
         You may specify upload_as to change the name it is uploaded as.
         You can also specify a blocksize and a callback if you wish.
         Returns the file's id on success and None on failure."""
-
         with delayed_close(
             filename if hasattr(filename, "read") else open(filename, "rb")
         ) as file:
@@ -631,7 +640,11 @@ class Room:
                 callback=callback,
             )
 
-            headers = {"Origin": BASE_URL}
+            headers = {
+                "Origin": BASE_URL,
+                "Referer": self.url,
+                "Connection": "close",
+            }
             headers.update(files.headers)
 
             while True:
@@ -674,11 +687,15 @@ class Room:
                     if "aborted" not in repr(ex):  # ye, that's nasty but "compatible"
                         raise
                     try:
-                        resume = self.conn.get(
-                            f"https://{server}/rest/uploadStatus",
-                            params={"key": key, "c": 1},
-                        ).text
-                        resume = from_json(resume)
+                        resume = self.conn.make_api_call(
+                            "uploadStatus",
+                            {"key": key, "c": self.__upload_count},
+                            headers,
+                            server,
+                        )
+                        self.__upload_count += 1
+                        if resume["ended"]:
+                            raise ConnectionError("Lain doesn't allow you to resume")
                         resume = resume["receivedBytes"]
                         if resume <= 0:
                             raise ConnectionError("Cannot resume")

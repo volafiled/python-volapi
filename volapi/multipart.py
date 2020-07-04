@@ -211,8 +211,8 @@ class Data:
         """Close multipart instance and all associated streams"""
         try:
             for stream in self.streams:
-                with stream:
-                    pass
+                if not stream.closed:
+                    stream.close()
         finally:
             del self.streams[:]
 

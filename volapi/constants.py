@@ -1,6 +1,7 @@
-__version__ = "5.18.1"
+__version__ = "5.19.0"
 
 MAX_UNACKED = 10
 BASE_URL = "https://volafile.org"
-BASE_REST_URL = BASE_URL + "/rest/"
+REST = "/rest/"
+BASE_REST_URL = BASE_URL + REST
 BASE_WS_URL = "wss://volafile.org/api/"

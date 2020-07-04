@@ -5,9 +5,9 @@ class Config(dict):
 
     def __init__(self):
         super().__init__()
-        self.setdefault("janitors", list())
+        self.setdefault("janitors", [])
         self.setdefault("disabled", False)
-        self.setdefault("owner", str())
+        self.setdefault("owner", "")
         self.__cfg_mapping = dict(
             adult=("adult", bool),
             private=("private", bool),
