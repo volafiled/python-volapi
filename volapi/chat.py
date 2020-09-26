@@ -6,6 +6,8 @@ from .utils import html_to_text
 class Roles(Enum):
     """All recognized roles"""
 
+    # pylint: disable=invalid-str-returned,invalid-repr-returned
+
     WHITE = "white"
     USER = "green"
     PRO = "pro"

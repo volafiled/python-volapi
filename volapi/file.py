@@ -1,5 +1,6 @@
 import time
 
+
 from .constants import BASE_URL
 
 
@@ -30,9 +31,7 @@ class File:
         try:
             return self.__additional[name]
         except KeyError:
-            self.conn.queues_enabled = False
             self.room.fileinfo(self.fid)
-            self.conn.queues_enabled = True
             return self.__additional[name]
 
     def fileupdate(self, data):

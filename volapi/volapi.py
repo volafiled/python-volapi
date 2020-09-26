@@ -67,7 +67,7 @@ class Connection(requests.Session):
         self.cookies.update({"allow-download": "1"})
 
         self.lock = RLock()
-        self.__conn_barrier = Barrier(2)
+        self.__conn_barrier = Barrier(2, timeout=5)
         self.listeners = defaultdict(Listeners)
         self.must_process = False
         self.__queues_enabled = True
@@ -190,7 +190,6 @@ class Connection(requests.Session):
             try:
                 if self.__lastping > self.__lastpong:
                     raise IOError("Last ping remained unanswered")
-
                 self.send_message("2")
                 self.send_ack()
                 self.__lastping = time.time()

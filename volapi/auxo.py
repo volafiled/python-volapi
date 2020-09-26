@@ -4,7 +4,7 @@ Copyright © 2015 RealDolos
 Copyright © 2018 Szero
 See LICENSE
 """
-# pylint: disable=bad-continuation,broad-except
+# pylint: disable=broad-except
 
 import logging
 import sys
