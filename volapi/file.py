@@ -31,10 +31,10 @@ class File:
         try:
             return self.__additional[name]
         except KeyError:
-            self.room.fileinfo(self.fid)
+            self.__fileupdate(self.room.fileinfo(self.fid))
             return self.__additional[name]
 
-    def fileupdate(self, data):
+    def __fileupdate(self, data):
         """Method to update extra metadata fields with dict obtained
         through `fileinfo`"""
 
