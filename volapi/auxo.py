@@ -179,7 +179,7 @@ class ListenerArbitrator:
             proto.sendMessage(payload)
             logger.debug("sent: %r", payload)
         except Exception as ex:
-            logger.exception("Failed to send message")
+            logger.exception("Failed to send message with payload of:\n%r", payload)
             proto.reraise(ex)
 
     @call_sync

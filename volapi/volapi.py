@@ -26,7 +26,7 @@ from collections import OrderedDict
 from collections import defaultdict
 from contextlib import suppress
 from threading import get_ident as get_thread_ident
-from threading import Barrier, RLock
+from threading import Barrier, RLock, BrokenBarrierError
 from concurrent.futures import TimeoutError as FutureTimeoutError
 
 
@@ -68,12 +68,11 @@ class Connection(requests.Session):
 
         self.lock = RLock()
         self.__conn_barrier = Barrier(2, timeout=5)
+        self.__close_barrier = Barrier(2, timeout=3)
         self.listeners = defaultdict(Listeners)
         self.must_process = False
         self.__queues_enabled = True
-
         self.__ping_interval = 20  # default
-
         self.proto = Protocol(self)
         self.handler = Handler(self)
         self.last_ack = self.proto.max_id
@@ -166,21 +165,25 @@ class Connection(requests.Session):
     def close(self):
         """Closes connection pair"""
 
-        if self.connected:
+        if self.connected and hasattr(self, "proto"):
             obj = [self.proto.max_id, [[2], self.proto.send_count]]
             ARBITRATOR.send_sync_message(self.proto, b"4" + to_json(obj))
+            self.__close_barrier.wait()
+            self.proto.connected = False
             self.proto.send_count += 1
             ARBITRATOR.close(self.proto)
         self.listeners.clear()
-        self.proto.connected = False
         super().close()
-        del self.room
-        del self.proto
+        if hasattr(self, "room"):
+            del self.room
 
     def __ensure_barrier(self):
         if self.__conn_barrier:
-            self.__conn_barrier.wait()
-            self.__conn_barrier = None
+            try:
+                self.__conn_barrier.wait()
+            except BrokenBarrierError:
+                self.reraise(ConnectionError("Failed to establish websocket connection"))
+                self.__conn_barrier = None
 
     async def on_open(self):
         """DingDongmaster the connection is open"""
@@ -232,8 +235,9 @@ class Connection(requests.Session):
             LOGGER.warning("Some IO Error, maybe reconnect after it?")
             # raise IOError("Force disconnect?")
         elif isinstance(data, list):
-            # ignore
-            pass
+            LOGGER.debug("Got some protocol data %r", data)
+            # wait for closing handshake, it's in gibberish here somewhere
+            self.__close_barrier.wait()
         # not really handled further
         else:
             LOGGER.warning("unhandled message frame type %r", data)
@@ -458,8 +462,8 @@ class Room:
             url = room_resp.url
             try:
                 self.name = re.search(r"r/(.+?)$", url).group(1)
-            except Exception:
-                raise IOError("Failed to create room")
+            except Exception as ex:
+                raise IOError("Failed to create room") from ex
         params = {"room": self.name}
         if self.key:
             params["roomKey"] = self.key
@@ -694,10 +698,10 @@ class Room:
                         )
                         self.__upload_count += 1
                         if resume["ended"]:
-                            raise ConnectionError("Lain doesn't allow you to resume")
+                            raise ConnectionError("Lain doesn't allow you to resume") from ex
                         resume = resume["receivedBytes"]
                         if resume <= 0:
-                            raise ConnectionError("Cannot resume")
+                            raise ConnectionError("Cannot resume") from ex
                         file.seek(resume)
                         files = Data(
                             {"file": {"name": filename, "value": file}},
@@ -722,7 +726,6 @@ class Room:
 
         if hasattr(self, "conn"):
             self.conn.close()
-            del self.conn
         if hasattr(self, "user"):
             del self.user
 
@@ -770,8 +773,7 @@ class Room:
 
         if not isinstance(fid, str):
             raise TypeError("Your file ID must be a string")
-        has_fid = fid in self.__files
-        if has_fid and self.__files[fid].updated:
+        if fid in self.__files and self.__files[fid].updated:
             return self.__files[fid]
         try:
             info = self.conn.make_call_with_cb("getFileinfo", fid).result(5)
@@ -779,8 +781,6 @@ class Room:
                 warnings.warn(
                     f"Your query for file with ID: '{fid}' failed.", RuntimeWarning
                 )
-            elif has_fid:
-                self.__files[fid].fileupdate(info)
         except (FutureTimeoutError, asyncio.CancelledError) as ex:
             raise ValueError(
                 "lain didn't produce a callback!\n"
@@ -809,10 +809,10 @@ class Room:
             self.__upload_count += 1
             try:
                 return info["key"], info["server"], info["file_id"]
-            except Exception:
+            except Exception as ex:
                 to = int(info.get("error", {}).get("info", {}).get("timeout", 0))
                 if to <= 0 or not allow_timeout:
-                    raise IOError(f"Failed to retrieve key {info}")
+                    raise IOError(f"Failed to retrieve key {info}") from ex
                 time.sleep(to / 10000)
 
     def delete_files(self, ids):
