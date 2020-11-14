@@ -68,10 +68,10 @@ class Connection(requests.Session):
 
         self.lock = RLock()
         self.__conn_barrier = Barrier(2, timeout=5)
-        self.__close_barrier = Barrier(2, timeout=3)
         self.listeners = defaultdict(Listeners)
         self.must_process = False
         self.__queues_enabled = True
+        self.__called_close_once = False
         self.__ping_interval = 20  # default
         self.proto = Protocol(self)
         self.handler = Handler(self)
@@ -108,12 +108,12 @@ class Connection(requests.Session):
     def connected(self):
         """Connection state"""
 
-        return bool(hasattr(self, "proto") and self.proto.connected)
+        return hasattr(self, "proto") and self.proto.connected
 
     def send_message(self, payload):
         """Send a message"""
 
-        ARBITRATOR.send_async_message(self.proto, payload)
+        ARBITRATOR.send_message(self.proto, payload)
 
     def send_ack(self):
         """Send an ack message"""
@@ -165,17 +165,21 @@ class Connection(requests.Session):
     def close(self):
         """Closes connection pair"""
 
-        if self.connected and hasattr(self, "proto"):
-            obj = [self.proto.max_id, [[2], self.proto.send_count]]
-            ARBITRATOR.send_sync_message(self.proto, b"4" + to_json(obj))
-            self.__close_barrier.wait()
-            self.proto.connected = False
-            self.proto.send_count += 1
-            ARBITRATOR.close(self.proto)
-        self.listeners.clear()
-        super().close()
-        if hasattr(self, "room"):
-            del self.room
+        if not self.__called_close_once:
+            with self.lock:
+                self.__called_close_once = True
+            if self.connected:
+                obj = [self.proto.max_id, [[2], self.proto.send_count]]
+                self.send_message(b"4" + to_json(obj))
+                with ARBITRATOR.condition:
+                    while self.connected:
+                        if not ARBITRATOR.condition.wait(timeout=2):
+                            break
+                ARBITRATOR.close(self.proto)
+            self.listeners.clear()
+            super().close()
+            if hasattr(self, "room"):
+                del self.room
 
     def __ensure_barrier(self):
         if self.__conn_barrier:
@@ -233,11 +237,10 @@ class Connection(requests.Session):
             self.room.close()
         elif data == [0]:
             LOGGER.warning("Some IO Error, maybe reconnect after it?")
-            # raise IOError("Force disconnect?")
+            raise IOError("Forced disconnect")
         elif isinstance(data, list):
-            LOGGER.debug("Got some protocol data %r", data)
-            # wait for closing handshake, it's in gibberish here somewhere
-            self.__close_barrier.wait()
+            # wait for some gibberish connection end handshake data??
+            ARBITRATOR.awaken()
         # not really handled further
         else:
             LOGGER.warning("unhandled message frame type %r", data)
@@ -415,7 +418,7 @@ class Room:
                 self.owner = False
             else:
                 # can't really be abused because you can only manage stuff as logged user
-                self.owner = bool(owner.lower() == self.user.nick.lower())
+                self.owner = owner.lower() == self.user.nick.lower()
 
             if subscribe and other and other.user and other.user.logged_in:
                 self.user.login_transplant(other.user)
@@ -500,7 +503,7 @@ class Room:
     def connected(self):
         """Room is connected"""
 
-        return bool(hasattr(self, "conn") and self.conn.connected)
+        return hasattr(self, "conn") and self.conn.connected
 
     def add_listener(self, event_type, callback):
         """Add a listener for specific event type.
@@ -723,7 +726,6 @@ class Room:
 
     def close(self):
         """Close connection to this room"""
-
         if hasattr(self, "conn"):
             self.conn.close()
         if hasattr(self, "user"):

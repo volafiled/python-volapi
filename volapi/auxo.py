@@ -18,8 +18,7 @@ from copy import copy
 
 from requests import Request
 from requests.cookies import get_cookie_header
-from autobahn.asyncio.websocket import WebSocketClientFactory
-from autobahn.asyncio.websocket import WebSocketClientProtocol
+from autobahn.asyncio.websocket import WebSocketClientFactory, WebSocketClientProtocol
 
 
 logger = logging.getLogger(__name__)
@@ -182,12 +181,8 @@ class ListenerArbitrator:
             logger.exception("Failed to send message with payload of:\n%r", payload)
             proto.reraise(ex)
 
-    @call_sync
-    def send_sync_message(self, proto, payload):
-        self.__send_message(proto, payload)
-
     @call_async
-    def send_async_message(self, proto, payload):
+    def send_message(self, proto, payload):
         self.__send_message(proto, payload)
 
     @call_sync

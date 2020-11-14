@@ -1,4 +1,8 @@
+import warnings
+
+
 from enum import Enum
+
 
 from .utils import html_to_text
 
@@ -108,8 +112,6 @@ class ChatMessage(str):
             elif ptype == "raw":
                 msg += html_to_text(part["value"])
             else:
-                import warnings
-
                 warnings.warn(f"unknown message type '{ptype}'", Warning)
 
         nick = data.get("nick") or data.get("user")
