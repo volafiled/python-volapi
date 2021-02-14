@@ -149,7 +149,7 @@ class Connection(requests.Session):
 
         heads = heads or {}
         server = f"https://{server}{REST}" if server else BASE_REST_URL
-        if not isinstance(params, dict) or not isinstance(heads, dict):
+        if not isinstance(params, dict):
             raise ValueError("params argument must be a dictionary")
         headers = {"Origin": BASE_URL, "Referer": self.room.url}
         headers.update(heads)
@@ -403,7 +403,7 @@ class Room:
         if other:
             self.conn.cookies.update(other.conn.cookies)
         try:
-            self.room_id, owner, checksum = self.__get_config()
+            self.room_id, checksum = self.__get_config()
 
             if not subscribe and not user:
                 if other and other.user and other.user.name:
@@ -414,11 +414,6 @@ class Room:
             self.conn.connect(
                 username=user, checksum=checksum, password=self.password, key=self.key
             )
-            if not owner or self.user.nick is None:
-                self.owner = False
-            else:
-                # can't really be abused because you can only manage stuff as logged user
-                self.owner = owner.lower() == self.user.nick.lower()
 
             if subscribe and other and other.user and other.user.logged_in:
                 self.user.login_transplant(other.user)
@@ -485,7 +480,7 @@ class Room:
         self.__add_prop("adult")
         self.__add_prop("disabled", True)
         self.__add_prop("file_ttl", True)
-        return (self.config.room_id, self.config.owner, config["checksum2"])
+        return (self.config.room_id, config["checksum2"])
 
     def __repr__(self):
         return f"<Room({self.name}, {self.user.nick}, connected={self.connected})>"
@@ -601,7 +596,7 @@ class Room:
             with ARBITRATOR.condition:
                 ARBITRATOR.condition.wait()
         if is_a:
-            if not self.admin and not self.staff:
+            if not self.admin or not self.staff:
                 raise RuntimeError("Can't modchat if you're not a mod or trusted")
             self.conn.make_call("command", self.user.nick, "a", msg)
             return
@@ -736,24 +731,11 @@ class Room:
 
         self.conn.make_call("submitReport", {"reason": reason})
 
-    @property
-    def user_info(self):
-        """Get info of a user that gets updated through userInfo calls"""
-
-        return self.__user_info
-
-    @user_info.setter
-    def user_info(self, kv):
-        """Sets user_info dict entry through a tuple."""
-
-        key, value = kv
-        self.__user_info[key] = value
-
     def check_owner(self):
         """Helper method that rises an error if we don't have enough
         privileges to do owner related tasks."""
 
-        if (not self.owner) and (not self.admin) and (not self.janitor):
+        if not (self.owner or self.janitor or self.admin):
             raise RuntimeError("Not enough auths do do that, big boy")
 
     def check_admin(self):

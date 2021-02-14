@@ -1,5 +1,6 @@
 import logging
 import warnings
+import pprint
 
 from functools import partial
 
@@ -133,8 +134,7 @@ class Handler:
                     continue
                 setattr(self.room, k, v)
                 self.conn.enqueue_data(k, getattr(self.room, k))
-            self.room.user_info = k, v
-        self.conn.enqueue_data("user_info", self.room.user_info)
+            self.conn.enqueue_data("user_info", {k: v})
 
     def _handle_removeMessages(self, data):
         """Handle mods purging stuff"""
@@ -178,8 +178,6 @@ class Handler:
                 if not initial:
                     self.conn.enqueue_data("file", fobj)
             except Exception:
-                import pprint
-
                 LOGGER.exception("bad file")
                 pprint.pprint(f)
         if initial:
