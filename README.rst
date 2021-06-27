@@ -11,11 +11,24 @@ Installation
 
     pip3 install volapi
 
-If you have it installed already but want to update
+or for version with faster json module, `orjson <https://github.com/ijl/orjson>`_
 
 ::
 
-   pip3 install -U volapi
+    pip3 install 'volapi[FAST_JSON]'
+
+
+If you have it installed already but want to update:
+
+::
+
+    pip3 install volapi -U
+
+or
+
+::
+
+    pip3 install 'volapi[FAST_JSON]' -U
 
 Examples
 --------

@@ -1,3 +1,2 @@
 autobahn>=20,<21
 requests
-orjson>=3,<4

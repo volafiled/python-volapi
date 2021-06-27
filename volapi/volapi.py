@@ -392,7 +392,6 @@ class Room:
         self.password = password or ""
         self.key = key or ""
         self.admin = self.staff = self.owner = self.janitor = False
-        self.__user_info = dict()
         self.__user_count = 0
         self.__files = OrderedDict()
         self.__upload_count = 0

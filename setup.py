@@ -33,6 +33,7 @@ def find_version(filename):
             return version_match.group(1)
         raise RuntimeError("Unable to find version string.")
 
+
 setup(
     name="volapi",
     version=find_version("volapi/constants.py"),
@@ -43,6 +44,7 @@ setup(
     author="RealDolos, szero",
     author_email="dolos@cock.li, singleton@tfwno.gf",
     packages=["volapi"],
+    extras_require={"FAST_JSON": ["orjson>=3,<4"]},
     include_package_data=True,
     classifiers=[
         "Development Status :: 5 - Production/Stable",
@@ -54,6 +56,7 @@ setup(
         "Programming Language :: Python :: 3.6",
         "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3 :: Only",
         "Topic :: Software Development :: Libraries :: Python Modules",
     ],
